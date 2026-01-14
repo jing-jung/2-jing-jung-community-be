@@ -1,22 +1,16 @@
 from datetime import datetime
 from app.model import UserCreate, UserLogin, PostCreate, PostUpdate
 
-# 가짜 DB (전역 변수 리스트)
 users_db = []
 posts_db = []
 
-
-# ==========================
 # 회원(User) 관련 함수들
-# ==========================
 
 def create_user(user: UserCreate):
-    # 중복 검사
     for u in users_db:
         if u["email"] == user.email:
             return False
 
-    # 저장
     new_user = user.dict()
     new_user["id"] = len(users_db) + 1
     users_db.append(new_user)
@@ -30,9 +24,7 @@ def login_user(data: UserLogin):
     return None
 
 
-# ==========================
 # 게시글(Post) 관련 함수들
-# ==========================
 
 def get_post_list(page: int, size: int):
     start = (page - 1) * size

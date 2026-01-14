@@ -1,6 +1,6 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Response, Request, Depends
 from app.model import UserCreate, UserLogin, PostCreate, PostUpdate, CommonResponse
-# services 파일에서 함수들을 직접 가져옴 (클래스 X)
+
 from app.services import (
     create_user, login_user,
     get_post_list, create_post, get_post, update_post, delete_post
@@ -9,7 +9,6 @@ from app.services import (
 router = APIRouter()
 
 
-# [쿠키 검사 헬퍼 함수]
 def get_current_user(request: Request):
     user = request.cookies.get("user_id")
     if not user:
@@ -17,13 +16,11 @@ def get_current_user(request: Request):
     return user
 
 
-# ==========================
 # API 목록
-# ==========================
 
 @router.post("/users/signup", status_code=201)
 def signup_api(user: UserCreate):
-    result = create_user(user)  # 함수 바로 호출!
+    result = create_user(user)
     if not result:
         raise HTTPException(status_code=409, detail="Email already exists")
     return CommonResponse(message="signup_success", data=result)
