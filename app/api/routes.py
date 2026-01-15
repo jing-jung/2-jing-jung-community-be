@@ -1,7 +1,7 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Response, Request, Depends
-from app.model import UserCreate, UserLogin, PostCreate, PostUpdate, CommonResponse
+from models.model import UserCreate, UserLogin, PostCreate, PostUpdate, CommonResponse
 
-from app.services import (
+from services.services import (
     create_user, login_user,
     get_post_list, create_post, get_post, update_post, delete_post
 )

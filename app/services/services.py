@@ -1,5 +1,5 @@
 from datetime import datetime
-from app.model import UserCreate, UserLogin, PostCreate, PostUpdate
+from models.model import UserCreate, UserLogin, PostCreate, PostUpdate
 
 users_db = []
 posts_db = []
