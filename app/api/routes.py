@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Response, Request, Depends
-from models.model import UserCreate, UserLogin, PostCreate, PostUpdate, CommonResponse
+from schemas.model import UserCreate, UserLogin, PostCreate, PostUpdate, CommonResponse
 
 from services.services import (
     create_user, login_user,
