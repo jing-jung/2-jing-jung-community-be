@@ -28,6 +28,8 @@ class PostUpdate(BaseModel):
     content: Optional[str] = None
     image_url: Optional[str] = None
 
+
+
 class PostResponse(BaseModel):
     id: int
     title: str

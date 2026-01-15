@@ -28,7 +28,7 @@ def signup_api(user: UserCreate):
 
 @router.post("/users/login", status_code=200)
 def login_api(data: UserLogin, response: Response):
-    user = login_user(data)  # 함수 바로 호출!
+    user = login_user(data)
     if not user:
         raise HTTPException(status_code=401, detail="Login failed")
 
