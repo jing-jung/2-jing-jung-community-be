@@ -31,6 +31,9 @@ class UserResponse(BaseModel):
 
 
 
+class CommentCreate(BaseModel):
+    content: str
+
 class CommentsCheck(BaseModel):
     id: int
     nickname: str
@@ -55,8 +58,6 @@ class PostUpdate(BaseModel):
     content: Optional[str] = None
     image_url: Optional[str] = None
 
-
-
 class PostResponse(BaseModel):
     id: int
     title: str
@@ -65,6 +66,8 @@ class PostResponse(BaseModel):
     view_count: int = 0
     like_count: int = 0
     created_at: str
+    comment_count: int = 0
+    writer_profile_image: Optional[str] = None
 
 
 
@@ -72,4 +75,3 @@ class CommonResponse(BaseModel):
     message: str
     code: Optional[str] = None
     data: Optional[Any] = None
-
