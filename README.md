@@ -52,12 +52,14 @@ FastAPI와 MySQL을 기반으로 구축했습니다.
 
 프로젝트 개발 과정에서 발생한 보안 취약점과 데이터 처리 문제를 해결한 과정입니다.
 
-### 1. CORS 및 Cookie 인증 이슈 (Network)
-- **문제 상황**: 프론트엔드와 백엔드 연동 시, 로그인 성공 후에도 브라우저에 쿠키(Session ID)가 저장되지 않거나 API 요청이 거절되는 현상.
-- **원인 분석**: 브라우저의 보안 정책상 `localhost`와 `127.0.0.1`을 다른 도메인으로 인식하여 **Same-Origin Policy** 위반 발생.
-- **해결**:
-  - 백엔드 CORS 설정의 `allow_origins`와 프론트엔드 API 호출 URL을 `http://localhost:8000`으로 통일.
-  - `allow_credentials=True` 옵션을 활성화하여 쿠키 공유 허용.
+### 1. CORS 및 인증 환경의 Origin 불일치 해결
+- **문제 상황**: 클라이언트에서 로그인 API 요청 성공 후, 서버가 세션 쿠키를 발급했음에도 이후 요청에 쿠키가 포함되지 않아 인증 상태가 유지되지 않음.
+- **원인 분석**: 
+  - 브라우저는 `localhost`와 `127.0.0.1`을 서로 다른 **Origin**으로 인식하여 **SOP(Same-Origin Policy)** 정책에 위배됨.
+  - 백엔드 CORS 설정을 올바르게 했음에도, 개발 환경의 도메인 불일치로 인해 브라우저가 보안상 쿠키 전송을 차단함.
+- **해결**: 
+  - `Access-Control-Allow-Origin` 헤더를 클라이언트 Origin과 일치시키고, `Access-Control-Allow-Credentials: true` 설정을 적용.
+  - 근본적인 해결을 위해 프론트엔드와 백엔드의 호출 주소를 모두 `localhost`로 **통일(Unification)**하여 Origin 불일치 문제를 해소함.
 
 ### 2. MVC 패턴 위반 및 아키텍처 개선 (Refactoring)
 - **문제 상황**: 초기 개발 시 `routers.py` 파일에 비즈니스 로직(이메일 중복 체크 등)이 혼재되어 코드 가독성이 떨어지고 유지보수가 어려움.
