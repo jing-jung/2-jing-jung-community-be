@@ -4,7 +4,7 @@
 
 
 
-<h1>🦁 Community Board - Backend Server</1>
+<h1>🦁 Community Board - Backend Server</h1>
 
 커뮤니티 게시판 프로젝트의 **REST API 서버** 리포지토리입니다.  
 FastAPI와 MySQL을 기반으로 구축했습니다.
