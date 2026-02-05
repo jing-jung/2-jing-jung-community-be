@@ -59,7 +59,7 @@ FastAPI와 MySQL을 기반으로 구축했습니다.
   - 백엔드 CORS 설정을 올바르게 했음에도, 개발 환경의 도메인 불일치로 인해 브라우저가 보안상 쿠키 전송을 차단함.
 - **해결**: 
   - `Access-Control-Allow-Origin` 헤더를 클라이언트 Origin과 일치시키고, `Access-Control-Allow-Credentials: true` 설정을 적용.
-  - 근본적인 해결을 위해 프론트엔드와 백엔드의 호출 주소를 모두 `localhost`로 **통일(Unification)**하여 Origin 불일치 문제를 해소함.
+  - 근본적인 해결을 위해 프론트엔드와 백엔드의 호출 주소를 모두 `localhost`로 통일하여 Origin 불일치 문제를 해소함.
 
 ### 2. MVC 패턴 위반 및 아키텍처 개선 (Refactoring)
 - **문제 상황**: 초기 개발 시 `routers.py` 파일에 비즈니스 로직(이메일 중복 체크 등)이 혼재되어 코드 가독성이 떨어지고 유지보수가 어려움.
