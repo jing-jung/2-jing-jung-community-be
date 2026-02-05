@@ -9,7 +9,7 @@
 커뮤니티 게시판 프로젝트의 **REST API 서버** 리포지토리입니다.  
 FastAPI와 MySQL을 기반으로 구축했습니다.
 
-🔗 **Frontend Repository**: [여기에 프론트엔드 깃허브 주소 링크]
+🔗 **Frontend Repository**: [https://github.com/jing-jung/2-jingjung-community-fe]
 
 ## 🛠️ Tech Stack
 - **Framework**: FastAPI
@@ -21,13 +21,13 @@ FastAPI와 MySQL을 기반으로 구축했습니다.
 ```text
 📦Community_Backend
  ┣ 📂app
- ┃ ┣ 📜main.py          # Entry Point
- ┃ ┣ 📜database.py      # DB Connection
- ┃ ┣ 📜models.py        # DB Tables
- ┃ ┣ 📜schemas.py       # Pydantic Models
- ┃ ┗ 📜controllers.py   # Business Logic (CRUD)
- ┣ 📜.env               # Environment Variables
- ┗ 📜requirements.txt   # Dependencies
+ ┃ ┣ 📜main.py        
+ ┃ ┣ 📜database.py      
+ ┃ ┣ 📂models.py        
+ ┃ ┗ 📂schemas.py     
+ ┣ 📜.env             
+ ┣ 📜.pyproject.toml            
+ ┗ 📂static
 ```
 
 ## ✨ Key Features (Backend)
