@@ -14,5 +14,10 @@ dependencies = [
   "pymysql",            # <-- MySQL 연결을 위한 드라이버 (필수)
   "bcrypt",
   "python-multipart",
-  "aioredis"
+  "aioredis",
+  "pandas",
+  "langchain-openai",
+  "langchain",
+  "langchain-core",
+  "pydantic"
 ]
