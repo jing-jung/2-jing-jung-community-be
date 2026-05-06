@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers.routes import router
+from app.routers.chat import router as chat_router
 from fastapi.staticfiles import StaticFiles
 import os
 import json
