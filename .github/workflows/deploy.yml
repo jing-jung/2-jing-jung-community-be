@@ -35,6 +35,10 @@ jobs:
           aws eks update-kubeconfig --name community-eks-cluster --region ${{ secrets.AWS_REGION }}
 
       - name: Deploy to EKS
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
         run: |
-          kubectl apply -f backend-deployment.yaml
+          envsubst < backend-deployment.yaml | kubectl apply -f -
           kubectl rollout restart deployment backend-deployment

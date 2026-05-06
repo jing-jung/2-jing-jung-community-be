@@ -15,10 +15,10 @@ metadata:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: backend-deployment # GitHub Actions에서 사용한 이름과 일치해야 합니다.
+  name: backend-deployment
   namespace: default
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: backend
@@ -27,28 +27,33 @@ spec:
       labels:
         app: backend
     spec:
-      # 1번에서 만든 ServiceAccount를 사용하도록 지정
       serviceAccountName: backend-sa
       containers:
         - name: backend-container
-          # 백엔드 ECR 이미지 주소를 여기에 입력하세요.
-          image: "016562553479.dkr.ecr.ap-southeast-2.amazonaws.com/community-be:latest" # `${ACCOUNT_ID}`와 리전을 확인하세요.
+          image: "016562553479.dkr.ecr.ap-southeast-2.amazonaws.com/community-be:latest"
           ports:
-            - containerPort: 8000
-          # Secrets Store CSI Driver가 만든 Kubernetes Secret을 환경변수로 주입
-          envFrom:
-            - secretRef:
-                name: backend-db-secrets
-          volumeMounts:
-            - name: secrets-store-inline
-              mountPath: "/mnt/secrets-store"
-              readOnly: true
-      # CSI 볼륨 정의
-      volumes:
-        - name: secrets-store-inline
-          csi:
-            driver: secrets-store.csi.k8s.io
-            readOnly: true
-            volumeAttributes:
-              # 2번에서 만든 SecretProviderClass의 이름을 지정
-              secretProviderClass: "community-db-creds-provider"
+            - containerPort: 5000
+          env:
+            - name: DB_HOST
+              value: "$DB_HOST"
+            - name: DB_USER
+              value: "$DB_USER"
+            - name: DB_PASSWORD
+              value: "$DB_PASSWORD"
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_NAME
+              value: "communitydb"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+spec:
+  selector:
+    app: backend
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 5000 # 백엔드 컨테이너 포트와 일치시켜야 합니다
+  type: ClusterIP # 프론트엔드에서 내부 통신용으로 사용

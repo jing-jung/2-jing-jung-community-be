@@ -50,8 +50,14 @@ def check_email(email: str, db: Session = Depends(get_db)):
     return controllers.check_email_controller(email, db)
 
 @router.patch("/users/{user_id}")
-def update_nickname(user_id: int, req: NicknameRequest, request: Request, db: Session = Depends(get_db)):
-    return controllers.update_nickname_controller(user_id, req.nickname, request, db)
+def update_nickname(
+    user_id: int,
+    request: Request,
+    nickname: str = Form(...),                                # 🚀 JSON 대신 Form 데이터로 닉네임 받기
+    profile_image: Optional[UploadFile] = File(None),         # 🚀 선택적으로 사진 파일 받기
+    db: Session = Depends(get_db)
+):
+    return controllers.update_nickname_controller(user_id, nickname, profile_image, request, db)
 
 @router.put("/users/me/password")
 def update_password(req: PasswordRequest, request: Request, db: Session = Depends(get_db)):
@@ -139,21 +145,33 @@ def get_messages(room_id: int, request: Request, db: Session = Depends(get_db)):
 def get_users_locations(db: Session = Depends(get_db)):
     return controllers.get_all_users_locations_controller(db)
 
-# --- Train ---
+# --- 기차 (Train) ---
 @router.post("/train/reserve")
-def reserve_train(data: dict, request: Request, db: Session = Depends(get_db)):
-    return controllers.reserve_train_controller(data, request, db)
+def reserve_train(train_data: dict, request: Request, db: Session = Depends(get_db)):
+    return controllers.reserve_train_controller(train_data, request, db)
+
+@router.get("/train/reservations")
+def get_my_train_reservations(request: Request, db: Session = Depends(get_db)):
+    return controllers.get_my_train_reservations_controller(request, db)
+
+@router.delete("/train/reservations/{reservation_id}")
+def delete_train_reservation(reservation_id: int, request: Request, db: Session = Depends(get_db)):
+    return controllers.delete_train_reservation_controller(reservation_id, request, db)
 
 # --- Matching (Bio) ---
+@router.get("/users/matching")
+def get_matching_users(request: Request, db: Session = Depends(get_db)):
+    return controllers.get_matching_users_controller(request, db)
+
 @router.patch("/users/me/bio")
 def update_bio(data: dict, request: Request, db: Session = Depends(get_db)):
     return controllers.update_bio_controller(data, request, db)
 
-# --- Turnip Market ---
+# --- 무 주식 (Turnip Market) ---
 @router.get("/turnips/price")
 def get_turnip_price():
     return controllers.get_turnip_price_controller()
 
 @router.post("/turnips/trade")
-def trade_turnip(data: dict, request: Request, db: Session = Depends(get_db)):
-    return controllers.trade_turnip_controller(data, request, db)
+def trade_turnips(trade_data: dict, request: Request, db: Session = Depends(get_db)):
+    return controllers.trade_turnip_controller(trade_data, request, db)

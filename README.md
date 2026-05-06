@@ -1,21 +1,28 @@
 ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
-![MySQL](https://img.shields.io/badge/MySQL-4479A1?style=for-the-badge&logo=mysql&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+![Terraform](https://img.shields.io/badge/Terraform-7B42BC?style=for-the-badge&logo=terraform&logoColor=white)
+![AWS](https://img.shields.io/badge/AWS-232F3E?style=for-the-badge&logo=amazonaws&logoColor=white)
+![Kubernetes](https://img.shields.io/badge/Kubernetes-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
 
 
+<h1>🍃 동숲 주민들의 커뮤니티 - Backend & Infra</h1>
 
-<h1>🦁 Community Board - Backend Server</h1>
+본 프로젝트의 백엔드는 **FastAPI**를 활용하여 빠르고 효율적인 비동기 처리를 구현했으며, **Terraform**을 통해 AWS 리소스 생성을 코드로 자동화(IaC)하여 **Amazon EKS** 환경에 배포되었습니다. 
 
-커뮤니티 게시판 프로젝트의 **REST API 서버** 리포지토리입니다.  
-FastAPI와 MySQL을 기반으로 구축했습니다.
-
-🔗 **Frontend Repository**: [https://github.com/jing-jung/2-jingjung-community-fe]
+🔗 **Frontend Repository**: [https://github.com/jing-jung/2-jingjung-community-fe](https://github.com/jing-jung/2-jingjung-community-fe)
 
 ## 🛠️ Tech Stack
-- **Framework**: FastAPI
-- **Database**: MySQL 8.0
-- **ORM**: SQLAlchemy
-- **Security**: Passlib (Bcrypt), Python-multipart, PyMySQL
+### Backend
+- **Framework**: Python (>=3.11), FastAPI, Uvicorn
+- **Database / ORM**: AWS RDS (MySQL), PyMySQL, SQLAlchemy
+- **Cache / Others**: Aioredis (Redis), bcrypt, python-multipart
+- **Real-time**: WebSockets
+
+### Infrastructure & CI/CD
+- **Cloud Provider**: AWS
+- **IaC**: Terraform
+- **Container / Orchestration**: Docker, Amazon ECR, Amazon EKS
+- **Routing**: Ingress (AWS ALB Ingress Controller)
 
 ## 📂 Directory Structure
 ```text
@@ -29,15 +36,39 @@ FastAPI와 MySQL을 기반으로 구축했습니다.
  ┣ 📜.pyproject.toml            
  ┗ 📂static
 ```
+## 🏗️ Cloud Infrastructure (Terraform)
 
-## ✨ Key Features (Backend)
-1.  **RESTful API 설계**: 사용자, 게시글, 댓글, 좋아요 기능 API 구현
-2.  **보안 강화 (Security)**
-    - **SQL Injection 방지**: SQLAlchemy ORM을 사용하여 쿼리 주입 공격 차단
-    - **비밀번호 암호화**: `bcrypt` 알고리즘을 이용한 단방향 해싱 저장
-    - **입력 데이터 검증**: Pydantic을 활용한 Request Body 유효성 체크 (길이 제한 등)
-3.  **예외 처리**: `400`, `404`, `500` 등 상황별 명확한 HTTP Status Code 및 에러 메시지 응답
+AWS 클라우드 인프라는 일관성 있고 반복 가능한 배포를 위해 Terraform으로 구축되었습니다. 
 
+- **`vpc.tf` & `security_groups.tf`**: VPC, 서브넷, 인터넷/NAT 게이트웨이 및 리소스별 보안 그룹(네트워크 격리) 구성
+- **`eks.tf` & `iam.tf`**: Amazon EKS 클러스터 및 노드 그룹 구성, 파드 및 노드 실행에 필요한 IAM 역할 관리
+- **`rds.tf`**: 백엔드 데이터 저장을 위한 Managed MySQL 데이터베이스 프로비저닝
+- **`alb.tf`**: 애플리케이션 로드 밸런서 리소스 설정
+- **`ecr.tf`**: 도커 컨테이너 이미지 저장을 위한 프라이빗 레지스트리 구성
+- **`delay.tf`**: 리소스 생성 의존성 및 타이밍(지연) 제어
+- **`provider.tf`, `locals.tf`, `variable.tf`**: AWS 프로바이더 설정 및 재사용 가능한 환경 변수 모듈화
+
+---
+## ✨ Backend Key Features
+
+### 1. 🚀 FastAPI 기반 비동기 API
+- 비동기 처리(Asynchronous)를 기본으로 지원하는 FastAPI를 도입하여 빠르고 가벼운 RESTful API를 구축했습니다.
+- CORS 미들웨어를 통해 등록된 로드밸런서 도메인(Ingress)에서의 안전한 접근을 허용합니다.
+
+### 2. 💬 실시간 1:1 채팅 (WebSockets)
+- `ConnectionManager`를 직접 구현하여 활성화된 WebSocket 커넥션을 메모리 상에서 관리합니다.
+- 쿠키(`session_id`) 기반으로 접속 유저의 권한을 검증하고, 인가된 사용자만 특정 `room_id` 소켓에 접근할 수 있도록 보안을 강화했습니다.
+- 메시지 수신 즉시 **AWS RDS**에 내역을 안전하게 저장하고, 동일한 방에 있는 유저들에게 실시간으로 브로드캐스팅합니다.
+
+### 3. 🔒 보안 및 인증 체계
+- **Bcrypt 암호화**: 사용자 비밀번호 단방향 해시 암호화 처리
+- **세션 관리**: 쿠키와 데이터베이스 세션 테이블을 교차 검증하여 상태를 유지하고 인가되지 않은 API 접근 및 소켓 연결을 차단(1008 에러 반환)합니다.
+
+### 4. 🗄️ ORM 기반 클라우드 DB 연동
+- `SQLAlchemy`를 활용하여 직관적인 데이터베이스 쿼리를 수행하며, AWS RDS 엔드포인트와 연결하여 안정적인 데이터 읽기/쓰기를 지원합니다.
+- 서버 구동 시 `Base.metadata.create_all`을 통해 동적으로 테이블을 생성 및 동기화합니다.
+
+---
 ## 💡 Why FastAPI? (Technology Decision)
 이 프로젝트에서 **FastAPI**를 선택한 기술적 이유는 다음과 같습니다.
 
@@ -47,50 +78,6 @@ FastAPI와 MySQL을 기반으로 구축했습니다.
     - Request Body로 들어오는 데이터의 타입을 Pydantic 모델로 엄격하게 정의하여, 런타임 에러를 사전에 방지하고 데이터 무결성을 높였습니다.
 3.  **생산성 및 문서화 (Swagger UI)**
     - 코드 작성과 동시에 OpenAPI(Swagger) 문서가 자동 생성되어, 프론트엔드 연동 시 별도의 API 명세서를 작성하는 시간을 획기적으로 단축했습니다.
-
-## 🛡️ Trouble Shooting & Security (핵심 문제 해결)
-
-프로젝트 개발 과정에서 발생한 보안 취약점과 데이터 처리 문제를 해결한 과정입니다.
-
-### 1. CORS 및 인증 환경의 Origin 불일치 해결
-- **문제 상황**: 클라이언트에서 로그인 API 요청 성공 후, 서버가 세션 쿠키를 발급했음에도 이후 요청에 쿠키가 포함되지 않아 인증 상태가 유지되지 않음.
-- **원인 분석**: 
-  - 브라우저는 `localhost`와 `127.0.0.1`을 서로 다른 **Origin**으로 인식하여 **SOP(Same-Origin Policy)** 정책에 위배됨.
-  - 백엔드 CORS 설정을 올바르게 했음에도, 개발 환경의 도메인 불일치로 인해 브라우저가 보안상 쿠키 전송을 차단함.
-- **해결**: 
-  - `Access-Control-Allow-Origin` 헤더를 클라이언트 Origin과 일치시키고, `Access-Control-Allow-Credentials: true` 설정을 적용.
-  - 근본적인 해결을 위해 프론트엔드와 백엔드의 호출 주소를 모두 `localhost`로 통일하여 Origin 불일치 문제를 해소함.
-
-### 2. MVC 패턴 위반 및 아키텍처 개선 (Refactoring)
-- **문제 상황**: 초기 개발 시 `routers.py` 파일에 비즈니스 로직(이메일 중복 체크 등)이 혼재되어 코드 가독성이 떨어지고 유지보수가 어려움.
-- **해결**:
-  - **Layered Architecture 적용**: 라우터는 "요청 분배"만 담당하고, 실제 로직은 `controllers.py`로 완전히 분리.
-  - **Import 순환 참조 방지**: 절대 경로(`from app.models...`)를 사용하여 모듈 간 의존성 정리.
-
-
-### 3. 대용량 데이터 처리 및 예외 핸들링
-- **문제 상황**: 장문의 텍스트 입력 시 `400 Bad Request` 발생 및 서버 연결 끊김 현상.
-- **해결**:
-  - **Backend**: DB 컬럼 타입을 `VARCHAR(255)`에서 `TEXT`로 변경하여 저장 용량 확보.
-  - **Frontend**: API 요청 전 `length` 체크 로직을 추가하여 1,000자 초과 시 즉시 차단(Early Return).
-  - **Exception**: JSON 파싱 실패 시 `try-catch`로 감싸 `response.text()`를 확인하여 사용자에게 정확한 에러 원인 알림.
-
-### 4. Windows 실행 권한 및 환경 이슈
-- **문제 상황**: Windows 환경에서 `uvicorn` 명령어 직접 실행 시 보안 정책(Execution Policy)으로 인한 차단 발생.
-- **해결**: 파이썬 모듈 실행 방식인 `python -m uvicorn ...` 명령어를 사용하여 실행 환경에 구애받지 않도록 개선.
-
-### 5. RESTful API 아키텍처 재설계 및 리팩토링
-- **문제 상황**: 
-  - 초기 기획 단계의 URL이 `/get_posts`, `/update_user`와 같이 **행위(Action)** 중심으로 설계되어 있어 REST 원칙에 위배됨.
-  - 수정 로직에 `POST`를 사용하는 등 HTTP Method의 의미가 불명확하고, 비즈니스 로직이 라우터에 혼재되어 유지보수가 어려움.
-- **해결 (Refactoring)**:
-  - **Resource-Oriented URL**: URL을 행위가 아닌 **리소스(명사)** 중심으로 재정의 (예: `/get_posts` → `GET /posts`, `/delete_comment` → `DELETE /comments/{id}`).
-  - **HTTP Method 교정**: 리소스의 상태 변경 목적에 맞춰 메서드를 명확히 구분.
-    - 데이터 생성: `POST`
-    - 데이터 조회: `GET`
-    - 전체 수정: `PUT` / 부분 수정: `PATCH`
-    - 삭제: `DELETE`
-  - **Layered Architecture 적용**: 라우터(`routes`)는 요청 수신만 담당하고, 실제 비즈니스 로직은 컨트롤러(`controllers`)로 분리하여 **책임의 분리(Separation of Concerns)** 실현.
 
 
 ### 🔍 Schema Description
@@ -109,55 +96,108 @@ FastAPI와 MySQL을 기반으로 구축했습니다.
 
 ```mermaid
 erDiagram
-    USERS ||--o{ POSTS : "writes"
-    USERS ||--o{ COMMENTS : "writes"
-    USERS ||--o{ LIKES : "clicks"
-    USERS ||--o{ VIEWS : "logs"
-    POSTS ||--o{ COMMENTS : "has"
-    POSTS ||--o{ LIKES : "receives"
-    POSTS ||--o{ VIEWS : "counts"
+    users ||--o{ posts : "writes"
+    users ||--o{ comments : "writes"
+    users ||--o{ likes : "does"
+    users ||--o{ views : "does"
+    users ||--o{ chat_participants : "participates"
+    users ||--o{ messages : "sends"
+    users ||--o{ train_reservations : "reserves"
+    users ||--o{ turnip_transactions : "makes"
 
-    USERS {
+    posts ||--o{ comments : "has"
+    posts ||--o{ likes : "has"
+    posts ||--o{ views : "has"
+
+    chat_rooms ||--o{ chat_participants : "has"
+    chat_rooms ||--o{ messages : "has"
+
+    users {
         int id PK
-        string nickname
-        string email
-        string image_url
-        string password
+        varchar nickname
+        varchar email
+        varchar image_url
+        varchar password
+        int bell_amount
+        int turnip_amount
+        text bio
         timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
     }
-    POSTS {
+    posts {
         int id PK
         int user_id FK
-        string title
-        string image_url
+        varchar title
+        varchar image_url
         text contents
         int views_count
         int likes_count
         int comments_count
         timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
     }
-    COMMENTS {
+    comments {
         int id PK
         int post_id FK
         int user_id FK
-        text content
+        varchar content
         timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
     }
-    LIKES {
-        int id PK
-        int user_id FK
-        int post_id FK
-        timestamp created_at
-    }
-    VIEWS {
+    likes {
         int id PK
         int user_id FK
         int post_id FK
         timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
     }
-    SESSIONS {
-        string session_id PK
+    views {
+        int id PK
+        int user_id FK
+        int post_id FK
+        timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
+    }
+    sessions {
+        varchar session_id PK
         int expires
         text data
+    }
+    chat_rooms {
+        int id PK
+        timestamp created_at
+    }
+    chat_participants {
+        int id PK
+        int room_id FK
+        int user_id FK
+    }
+    messages {
+        int id PK
+        int room_id FK
+        int sender_id FK
+        text content
+        timestamp created_at
+        int is_read
+    }
+    train_reservations {
+        int id PK
+        int user_id FK
+        varchar train_number
+        timestamp departure_time
+        varchar status
+        timestamp created_at
+    }
+    turnip_transactions {
+        int id PK
+        int user_id FK
+        varchar type
+        int quantity
+        int price
         timestamp created_at
     }
