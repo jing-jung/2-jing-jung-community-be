@@ -1,15 +1,24 @@
 import pandas as pd
 import urllib.parse
+import os
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
-from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from dotenv import load_dotenv
+
+# .env 파일에서 환경 변수 로드
+load_dotenv()
 
 router = APIRouter()
 
-# OpenAI 모델 초기화 (API 키는 환경변수에 설정되어 있어야 해)
-llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.5) # 창의적인 말투를 위해 온도를 살짝 올림
+# Groq 모델 초기화
+llm = ChatGroq(
+    model="llama3-8b-8192", 
+    temperature=0.5,
+    api_key=os.getenv("GROQ_API_KEY")
+)
 
 class ChatRequest(BaseModel):
     user_id: str

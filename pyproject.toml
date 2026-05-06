@@ -16,8 +16,9 @@ dependencies = [
   "python-multipart",
   "aioredis",
   "pandas",
-  "langchain-openai",
+  "langchain-groq",
   "langchain",
   "langchain-core",
-  "pydantic"
+  "pydantic",
+  "python-dotenv"
 ]
