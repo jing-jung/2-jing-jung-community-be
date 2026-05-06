@@ -107,7 +107,7 @@ def get_me_controller(request, db):
     if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
     return {"id": user.id, "email": user.email, "nickname": user.nickname, "profile_image": user.image_url,
-            "turnip": user.turnip_amount or 0, "bell": user.bell_amount or 0}
+            "turnip_amount": user.turnip_amount or 0, "bell_amount": user.bell_amount or 0}
 
 
 # 5. 게시글 목록 (삭제된 글 제외)
@@ -154,7 +154,7 @@ def get_post_detail_controller(post_id, request, db):
                       image_url,
                       likes_count,
                       views_count,
-                      comments_count as comments_count,
+                      comments_count,
                       created_at,
                       deleted_at
                FROM posts
@@ -187,8 +187,9 @@ def get_post_detail_controller(post_id, request, db):
 
     return {
         "post_id": post.id,
+        "user_id": post.user_id,
         "title": post.title,
-        "content": post.contents,
+        "contents": post.contents,
         "image": post.image_url,
         "likes_count": post.likes_count,
         "views_count": post.views_count,
@@ -202,18 +203,18 @@ def get_post_detail_controller(post_id, request, db):
 
 
 # 7. 게시글 작성
-def create_post_controller(title, content, image, request, db):
+def create_post_controller(title, contents, image, request, db):
     user_id = get_current_user_id(request, db)
     image_url = save_image(image)
     sql = text(
-        "INSERT INTO posts (user_id, title, contents, image_url, created_at) VALUES (:uid, :title, :content, :img, NOW())")
-    db.execute(sql, {"uid": user_id, "title": title, "content": content, "img": image_url})
+        "INSERT INTO posts (user_id, title, contents, image_url, created_at) VALUES (:uid, :title, :contents, :img, NOW())")
+    db.execute(sql, {"uid": user_id, "title": title, "contents": contents, "img": image_url})
     db.commit()
     return {"message": "게시글 등록 성공"}
 
 
 # 8. 게시글 수정
-def update_post_controller(post_id, title, content, image, request, db):
+def update_post_controller(post_id, title, contents, image, request, db):
     user_id = get_current_user_id(request, db)
     post = db.execute(text("SELECT user_id FROM posts WHERE id=:pid AND deleted_at IS NULL"),
                       {"pid": post_id}).fetchone()
@@ -222,10 +223,10 @@ def update_post_controller(post_id, title, content, image, request, db):
     if image:
         new_url = save_image(image)
         db.execute(text("UPDATE posts SET title=:t, contents=:c, image_url=:i WHERE id=:pid"),
-                   {"t": title, "c": content, "i": new_url, "pid": post_id})
+                   {"t": title, "c": contents, "i": new_url, "pid": post_id})
     else:
         db.execute(text("UPDATE posts SET title=:t, contents=:c WHERE id=:pid"),
-                   {"t": title, "c": content, "pid": post_id})
+                   {"t": title, "c": contents, "pid": post_id})
     db.commit()
     return {"message": "수정 완료"}
 
@@ -287,7 +288,7 @@ def create_comment_controller(post_id, content, request, db):
 # 12. 댓글 목록
 def get_comments_controller(post_id, request, db):
     sql = text("""
-               SELECT c.*, u.nickname, u.image_url
+               SELECT c.id, c.post_id, c.user_id, c.content, c.created_at, u.nickname, u.image_url
                FROM comments c
                         JOIN users u ON c.user_id = u.id
                WHERE c.post_id = :pid
@@ -397,11 +398,10 @@ def initiate_chat_controller(recipient_id: int, request, db):
         return {"room_id": result.room_id}
 
     # 새 채팅방 생성
-    # controllers.py 수정
     sql_create_room = text("INSERT INTO chat_rooms (created_at) VALUES (NOW())")
     result = db.execute(sql_create_room)
     db.commit()
-    new_room_id = result.lastrowid  # MySQL인 경우 매우 정확함
+    new_room_id = result.lastrowid
 
     # 참가자 추가
     sql_add_participants = text("INSERT INTO chat_participants (room_id, user_id) VALUES (:room_id, :user_id)")
