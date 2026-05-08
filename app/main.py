@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -13,12 +15,11 @@ from app.db import SessionLocal
 from sqlalchemy import text
 from app.db import engine
 from app.models import model
-from dotenv import load_dotenv
-load_dotenv()
 
 model.Base.metadata.create_all(bind=engine)
 
-app = FastAPI(root_path="/api")
+app = FastAPI()
+# app = FastAPI(root_path="/api")
 
 
 class ConnectionManager:
@@ -68,7 +69,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router)
-app.include_router(chat_router, prefix="/chat")
+app.include_router(chat_router)
 
 
 # --- WebSocket Endpoint ---
