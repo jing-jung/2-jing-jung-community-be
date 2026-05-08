@@ -13,6 +13,8 @@ from app.db import SessionLocal
 from sqlalchemy import text
 from app.db import engine
 from app.models import model
+from dotenv import load_dotenv
+load_dotenv()
 
 model.Base.metadata.create_all(bind=engine)
 
@@ -66,6 +68,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router)
+app.include_router(chat_router, prefix="/chat")
 
 
 # --- WebSocket Endpoint ---

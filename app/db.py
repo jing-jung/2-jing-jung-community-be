@@ -1,7 +1,9 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base # 👈 1. 여기 declarative_base 추가!
 import os
+from dotenv import load_dotenv
 
+load_dotenv()
 
 # 2. 환경 변수에서 값 꺼내기
 user = os.getenv("DB_USER")
