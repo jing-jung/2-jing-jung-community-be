@@ -53,8 +53,8 @@ def check_email(email: str, db: Session = Depends(get_db)):
 def update_nickname(
     user_id: int,
     request: Request,
-    nickname: str = Form(...),                                # 🚀 JSON 대신 Form 데이터로 닉네임 받기
-    profile_image: Optional[UploadFile] = File(None),         # 🚀 선택적으로 사진 파일 받기
+    nickname: str = Form(...),
+    profile_image: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db)
 ):
     return controllers.update_nickname_controller(user_id, nickname, profile_image, request, db)
@@ -73,7 +73,7 @@ def delete_user(request: Request, response: Response, db: Session = Depends(get_
 def get_posts(offset: int = 0, limit: int = 10, db: Session = Depends(get_db)):
     return controllers.get_posts_list_controller(offset, limit, db)
 
-@router.post("/posts", status_code=201) # 프론트 경로 맞춤
+@router.post("/posts", status_code=201)
 def create_post(
     request: Request,
     title: str = Form(...),
@@ -87,7 +87,7 @@ def create_post(
 def get_post_detail(post_id: int, request: Request, db: Session = Depends(get_db)):
     return controllers.get_post_detail_controller(post_id, request, db)
 
-@router.put("/posts/{post_id}") # 프론트 경로 맞춤
+@router.put("/posts/{post_id}")
 def update_post(
     post_id: int,
     request: Request,

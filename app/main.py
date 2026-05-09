@@ -1,5 +1,9 @@
+import os
 from dotenv import load_dotenv
 load_dotenv()
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -7,7 +11,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers.routes import router
 from app.routers.chat import router as chat_router
 from fastapi.staticfiles import StaticFiles
-import os
 import json
 from typing import Dict
 from datetime import datetime
@@ -70,7 +73,6 @@ app.add_middleware(
 )
 app.include_router(router)
 app.include_router(chat_router)
-
 
 # --- WebSocket Endpoint ---
 @app.websocket("/ws/{room_id}")

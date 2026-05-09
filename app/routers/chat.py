@@ -1,6 +1,7 @@
 import pandas as pd
 import urllib.parse
 import os
+import numpy as np
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from langchain_groq import ChatGroq
@@ -8,53 +9,56 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from dotenv import load_dotenv
 
-# .env 파일에서 환경 변수 로드
+# 1. 환경 변수 로드
 load_dotenv()
 
 router = APIRouter()
 
-# Groq 모델 초기화
+# 2. 모델 초기화
 llm = ChatGroq(
-    model="llama3-8b-8192", 
+    model="llama-3.1-8b-instant",
     temperature=0.5,
     api_key=os.getenv("GROQ_API_KEY")
 )
 
+
 class ChatRequest(BaseModel):
     user_id: str
     message: str
+
 
 class SearchIntent(BaseModel):
     region: str = Field(default="")
     category: str = Field(default="")
     intent_keyword: str = Field(default="")
 
-# 1. 의도 파악 프롬프트 (그대로 유지)
+
+# 프롬프트 설정
 intent_prompt = ChatPromptTemplate.from_messages([
     ("system", "사용자의 질문이 식당 추천과 관련이 있는지 판별해. 관련이 없다면 REJECT, 있다면 ACCEPT를 출력해."),
     ("user", "{message}")
 ])
 intent_chain = intent_prompt | llm | StrOutputParser()
 
-# 2. 키워드 추출 프롬프트 (그대로 유지)
 extraction_prompt = ChatPromptTemplate.from_messages([
     ("system", "사용자의 질문에서 지역, 음식종류, 상황의도를 추출해. 정보가 없으면 빈 문자열을 넣어줘."),
     ("user", "{message}")
 ])
 extraction_chain = extraction_prompt | llm.with_structured_output(SearchIntent)
 
-# 3. 여울이 컨셉 답변 생성 프롬프트 (수정됨)
 answer_prompt = ChatPromptTemplate.from_messages([
     ("system", """너는 우리 마을의 친절한 안내원 '여울'이야! 
     동물의 숲 주민에게 말하듯이 항상 밝고 친절하며 귀여운 말투(~예용, ~어떨까요?, ~랍니다! 등)를 사용해줘.
     다음 제공된 식당 정보를 바탕으로 사용자에게 딱 맞는 식당을 추천해줘.
     응답의 마지막에는 반드시 내가 제공한 '카카오맵 링크'를 함께 알려줘.
-    
+
     추천 식당 정보: {recommendation}"""),
     ("user", "{message}")
 ])
 answer_chain = answer_prompt | llm | StrOutputParser()
 
+
+# 3. 클래스 정의
 class RecommendationEngine:
     def __init__(self, shops_path: str, logs_path: str):
         self.shops_df = pd.read_csv(shops_path)
@@ -62,7 +66,6 @@ class RecommendationEngine:
         self._preprocess_data()
 
     def _preprocess_data(self):
-        # 세션별로 빈 검색어 채우기 및 점수 계산 로직
         self.logs_df = self.logs_df.sort_values(by=['session_id', 'event_timestamp'])
         self.logs_df['search_query'] = self.logs_df.groupby('session_id')['search_query'].ffill()
         weights = {'impression': 1, 'click': 2, 'view': 3, 'bookmark': 10, 'reservation': 20}
@@ -70,30 +73,27 @@ class RecommendationEngine:
         self.shop_scores = self.logs_df.groupby(['shop_id', 'search_query'])['score'].sum().reset_index()
 
     def get_recommendation(self, region: str, category: str, intent_keyword: str) -> list:
-        # 필터링 로직
         filtered_shops = self.shops_df[
             (self.shops_df['address'].fillna('').str.contains(region)) &
             (self.shops_df['categories'].fillna('').str.contains(category))
-        ].copy()
-        
+            ].copy()
+
         if filtered_shops.empty:
             return []
-            
-        # 랭킹 계산
+
         relevant_scores = self.shop_scores[
             self.shop_scores['search_query'].fillna('').str.contains(intent_keyword)
         ]
         merged_df = pd.merge(filtered_shops, relevant_scores, on='shop_id', how='left')
         merged_df['score'] = merged_df['score'].fillna(0)
         ranked_shops = merged_df.sort_values(by='score', ascending=False)
-        
+
         top_3 = ranked_shops.head(3)
         result = []
         for _, row in top_3.iterrows():
-            # 카카오맵 검색 URL 생성
             encoded_name = urllib.parse.quote(row['shop_name'])
             map_url = f"https://map.kakao.com/link/search/{encoded_name}"
-            
+
             result.append({
                 "name": row['shop_name'],
                 "address": row['address'],
@@ -101,20 +101,80 @@ class RecommendationEngine:
             })
         return result
 
-# 서버 시작 시 데이터 로드
-engine = RecommendationEngine('shops.csv', 'logs.csv')
+    def evaluate_performance(self, k=3):
+        print(f"\n📊 --- 추천 모델 성능 평가 (Top-{k}) 시작 --- 📊")
+        
+        true_likes = self.shop_scores[self.shop_scores['score'] >= 10].groupby('search_query')['shop_id'].apply(list).to_dict()
+        
+        if not true_likes:
+            print("❌ 평가할 정답 데이터(북마크/예약 로그)가 부족합니다.")
+            return
+
+        precisions = []
+        recalls = []
+        ndcgs = []
+
+        for query, true_items in true_likes.items():
+            relevant_scores = self.shop_scores[self.shop_scores['search_query'].fillna('').str.contains(query)]
+            merged_df = pd.merge(self.shops_df, relevant_scores, on='shop_id', how='left')
+            merged_df['score'] = merged_df['score'].fillna(0)
+            top_k_shops = merged_df.sort_values(by='score', ascending=False).head(k)['shop_id'].tolist()
+
+            hits = len(set(top_k_shops) & set(true_items))
+            
+            precision = hits / k
+            recall = hits / len(true_items) if len(true_items) > 0 else 0
+            
+            dcg = 0
+            for i, shop in enumerate(top_k_shops):
+                if shop in true_items:
+                    dcg += 1 / np.log2(i + 2)
+            
+            idcg = 0
+            for i in range(min(len(true_items), k)):
+                idcg += 1 / np.log2(i + 2)
+                
+            ndcg = dcg / idcg if idcg > 0 else 0
+
+            precisions.append(precision)
+            recalls.append(recall)
+            ndcgs.append(ndcg)
+
+        print(f"✅ 평균 Precision@{k}: {np.mean(precisions):.4f} (추천해준 3개 중 정답의 비율)")
+        print(f"✅ 평균 Recall@{k}: {np.mean(recalls):.4f} (실제 정답 중 AI가 맞춘 비율)")
+        print(f"✅ 평균 NDCG@{k}: {np.mean(ndcgs):.4f} (순위의 정확도 (1점에 가까울수록 좋음))")
+        print("------------------------------------------\n")
+
+
+# 4. 추천 엔진 초기화
+engine = None
+try:
+    shops_path = "shops.csv"
+    logs_path = "logs.csv"
+    if os.path.exists(shops_path) and os.path.exists(logs_path):
+        engine = RecommendationEngine(shops_path, logs_path)
+        engine.evaluate_performance(k=3)
+except Exception:
+    pass
+
+
+# 5. API 라우터
+@router.get("/chat/test")
+def test_connection():
+    return {"status": "ok", "message": "채팅 라우터 연결 성공!"}
+
 
 @router.post("/chat")
 async def chat_with_bot(req: ChatRequest):
-    # 1. 의도 파악 (가드레일)
+    if engine is None:
+        return {"reply": "앗, 서버의 장부(데이터)를 읽어오지 못했어요. 잠시만 기다려 주세요! 😭"}
+
     intent_check = await intent_chain.ainvoke({"message": req.message})
     if "REJECT" in intent_check:
         return {"reply": "안녕하세요! 저는 식당 추천을 도와드리는 안내원 여울이에용. 식당과 관련된 질문을 해주시면 친절하게 안내해 드릴게요! 🏕️"}
 
-    # 2. 키워드 추출
     extracted = await extraction_chain.ainvoke({"message": req.message})
 
-    # 3. 데이터 기반 추천 식당 검색
     recommendation_data = engine.get_recommendation(
         region=extracted.region,
         category=extracted.category,
@@ -122,9 +182,8 @@ async def chat_with_bot(req: ChatRequest):
     )
 
     if not recommendation_data:
-         return {"reply": "앗, 죄송해용! 마을 장부에서 조건에 딱 맞는 식당을 찾지 못했어요 ㅠㅠ 다른 동네나 메뉴로 다시 물어봐 주실래요?"}
+        return {"reply": "앗, 죄송해용! 마을 장부에서 조건에 딱 맞는 식당을 찾지 못했어요 ㅠㅠ 다른 동네나 메뉴로 다시 물어봐 주실래요?"}
 
-    # 4. 여울이 말투로 최종 응답 생성
     final_answer = await answer_chain.ainvoke({
         "recommendation": str(recommendation_data),
         "message": req.message
