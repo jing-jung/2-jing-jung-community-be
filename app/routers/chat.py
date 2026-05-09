@@ -52,7 +52,17 @@ answer_prompt = ChatPromptTemplate.from_messages([
     다음 제공된 식당 정보를 바탕으로 사용자에게 딱 맞는 식당을 추천해줘.
     응답의 마지막에는 반드시 내가 제공한 '카카오맵 링크'를 함께 알려줘.
 
-    추천 식당 정보: {recommendation}"""),
+    추천할 때는 반드시 아래 형식을 지켜서 한 개씩 친절하게 소개해줘:
+    
+    1. [식당 이름] - [간단한 설명]
+    주소: [식당 주소]
+    카카오맵 링크: [제공된 map_link]
+    
+    ⚠️ 중요: '카카오맵 링크'는 반드시 주소 바로 아랫줄(새 줄)에 적어줘야 해!
+    
+    [추천 식당 데이터]
+    {recommendation}
+    """),
     ("user", "{message}")
 ])
 answer_chain = answer_prompt | llm | StrOutputParser()
@@ -102,48 +112,34 @@ class RecommendationEngine:
         return result
 
     def evaluate_performance(self, k=3):
-        print(f"\n📊 --- 추천 모델 성능 평가 (Top-{k}) 시작 --- 📊")
-        
         true_likes = self.shop_scores[self.shop_scores['score'] >= 10].groupby('search_query')['shop_id'].apply(list).to_dict()
         
         if not true_likes:
-            print("❌ 평가할 정답 데이터(북마크/예약 로그)가 부족합니다.")
-            return
+            return {"message": "평가할 정답 데이터(북마크/예약 로그)가 부족합니다."}
 
-        precisions = []
-        recalls = []
-        ndcgs = []
+        precisions, recalls, ndcgs = [], [], []
 
         for query, true_items in true_likes.items():
-            relevant_scores = self.shop_scores[self.shop_scores['search_query'].fillna('').str.contains(query)]
+            relevant_scores = self.shop_scores[self.shop_scores['search_query'].fillna('').str.contains(query, regex=False)]
             merged_df = pd.merge(self.shops_df, relevant_scores, on='shop_id', how='left')
             merged_df['score'] = merged_df['score'].fillna(0)
+            
             top_k_shops = merged_df.sort_values(by='score', ascending=False).head(k)['shop_id'].tolist()
-
             hits = len(set(top_k_shops) & set(true_items))
             
-            precision = hits / k
-            recall = hits / len(true_items) if len(true_items) > 0 else 0
+            precisions.append(hits / k)
+            recalls.append(hits / len(true_items) if len(true_items) > 0 else 0)
             
-            dcg = 0
-            for i, shop in enumerate(top_k_shops):
-                if shop in true_items:
-                    dcg += 1 / np.log2(i + 2)
-            
-            idcg = 0
-            for i in range(min(len(true_items), k)):
-                idcg += 1 / np.log2(i + 2)
-                
-            ndcg = dcg / idcg if idcg > 0 else 0
+            dcg = sum([1 / np.log2(i + 2) for i, shop in enumerate(top_k_shops) if shop in true_items])
+            idcg = sum([1 / np.log2(i + 2) for i in range(min(len(true_items), k))])
+            ndcgs.append(dcg / idcg if idcg > 0 else 0)
 
-            precisions.append(precision)
-            recalls.append(recall)
-            ndcgs.append(ndcg)
-
-        print(f"✅ 평균 Precision@{k}: {np.mean(precisions):.4f} (추천해준 3개 중 정답의 비율)")
-        print(f"✅ 평균 Recall@{k}: {np.mean(recalls):.4f} (실제 정답 중 AI가 맞춘 비율)")
-        print(f"✅ 평균 NDCG@{k}: {np.mean(ndcgs):.4f} (순위의 정확도 (1점에 가까울수록 좋음))")
-        print("------------------------------------------\n")
+        return {
+            "Precision_at_3": round(np.mean(precisions), 4),
+            "Recall_at_3": round(np.mean(recalls), 4),
+            "NDCG_at_3": round(np.mean(ndcgs), 4),
+            "Tested_Queries": len(true_likes)
+        }
 
 
 # 4. 추천 엔진 초기화
@@ -153,7 +149,6 @@ try:
     logs_path = "logs.csv"
     if os.path.exists(shops_path) and os.path.exists(logs_path):
         engine = RecommendationEngine(shops_path, logs_path)
-        engine.evaluate_performance(k=3)
 except Exception:
     pass
 
@@ -162,6 +157,13 @@ except Exception:
 @router.get("/chat/test")
 def test_connection():
     return {"status": "ok", "message": "채팅 라우터 연결 성공!"}
+
+
+@router.get("/chat/evaluate")
+def evaluate_model():
+    if engine is None:
+        return {"error": "추천 엔진이 초기화되지 않았습니다."}
+    return engine.evaluate_performance()
 
 
 @router.post("/chat")
