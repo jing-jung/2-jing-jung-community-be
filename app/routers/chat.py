@@ -134,10 +134,10 @@ class RecommendationEngine:
             filtered_shops = filtered_shops[mask]
             
         if filtered_shops.empty: return []
-            
+
         # 4. 랭킹 계산 (중복 제거 포함)
         relevant_scores = self.shop_scores[
-            self.shop_scores['search_query'].fillna('').str.contains(intent_keyword, regex=False) if intent_keyword else True
+            self.shop_scores['search_query'].fillna('').str.contains(intent_keyword, regex=False)
         ]
         merged_df = pd.merge(filtered_shops, relevant_scores, on='shop_id', how='left')
         merged_df['score'] = merged_df['score'].fillna(0)
