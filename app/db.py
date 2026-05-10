@@ -6,7 +6,6 @@ import os
 # .env 파일 로드를 시도하고 결과를 출력합니다.
 # load_dotenv()는 .env 파일을 찾으면 True, 못 찾으면 False를 반환합니다.
 found_dotenv = load_dotenv()
-print(f"Did dotenv find a .env file? {found_dotenv}")
 
 # 환경 변수에서 값을 다시 확인합니다.
 user = os.getenv("DB_USER")
