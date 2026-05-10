@@ -196,6 +196,7 @@ try:
 except Exception:
     pass
 
+user_memory = {}
 
 # 5. API 라우터
 @router.get("/chat/test")
@@ -220,6 +221,16 @@ async def chat_with_bot(req: ChatRequest):
         return {"reply": "안녕하세요! 저는 식당 추천을 도와드리는 안내원 여울이에용. 식당과 관련된 질문을 해주시면 친절하게 안내해 드릴게요! 🏕️"}
 
     extracted = await extraction_chain.ainvoke({"message": req.message})
+
+    if req.user_id not in user_memory:
+        user_memory[req.user_id] = {"exclude_keyword": ""}
+
+        # 만약 유저가 이번 질문에서 "~~빼줘"라고 새로 말했다면 기억 업데이트!
+    if extracted.exclude_keyword:
+        user_memory[req.user_id]["exclude_keyword"] = extracted.exclude_keyword
+        # 새로 말 안 했어도, 과거에 "해산물 빼줘"라고 한 기억이 있다면 그걸 꺼내서 적용!
+    else:
+        extracted.exclude_keyword = user_memory[req.user_id]["exclude_keyword"]
 
     recommendation_data = engine.get_recommendation(
         region=extracted.region,
