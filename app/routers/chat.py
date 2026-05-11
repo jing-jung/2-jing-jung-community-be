@@ -3,6 +3,7 @@ import urllib.parse
 import os
 import numpy as np
 import json
+import traceback
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from langchain_groq import ChatGroq
@@ -121,47 +122,45 @@ class RecommendationEngine:
         self.shop_scores = self.logs_df.groupby(['shop_id', 'search_query'])['score'].sum().reset_index()
 
     def get_recommendation(self, region: str, category: str, intent_keyword: str, exclude_keyword: str = "") -> list:
-        # 1. 주소(지역) 필터링
-        filtered_shops = self.shops_df[
-            self.shops_df['address'].fillna('').str.contains(region, regex=False)
-        ].copy()
+        # [Step 2] 위치 및 알러지 필터링
+        filtered_shops = self.shops_df.copy()
         
-        if filtered_shops.empty: return []
-
-        # 🔥 [새로 추가된 알러지/제외 필터!]
+        # 장소를 명확히 말했을 때만 필터링 (다 강남이면 어차피 통과)
+        if region:
+            filtered_shops = filtered_shops[filtered_shops['address'].fillna('').str.contains(region, regex=False)]
+        
+        # 알러지 필터링은 건강과 직결되므로 엄격하게 유지!
         if exclude_keyword:
-            # 카테고리나 메뉴에 제외 키워드가 들어간 식당은 'False' 처리해서 날려버림 (물결표 ~ 사용)
             exclude_mask = ~(
                 filtered_shops['categories'].fillna('').str.contains(exclude_keyword, regex=True) |
                 filtered_shops['menus'].fillna('').str.contains(exclude_keyword, regex=True)
             )
             filtered_shops = filtered_shops[exclude_mask]
-            
-        if filtered_shops.empty: return []
-            
-        # 2. 카테고리, 메뉴, 부대시설 합치기
-        combined_info = filtered_shops['categories'].fillna('') + " " + \
-                        filtered_shops['menus'].fillna('') + " " + \
-                        filtered_shops['facilities'].fillna('')
-        
-        # 3. 키워드 필터링
-        search_words = [word for word in [category, intent_keyword] if word]
-        if search_words:
-            pattern = '|'.join(search_words)
-            mask = combined_info.str.contains(pattern, regex=True)
-            filtered_shops = filtered_shops[mask]
-            
+
         if filtered_shops.empty: return []
 
-        # 4. 랭킹 계산 (중복 제거 포함)
-        relevant_scores = self.shop_scores[
-            self.shop_scores['search_query'].fillna('').str.contains(intent_keyword, regex=False)
-        ]
+        # [Step 4] 바로 스코어링으로 넘어가기
+        search_intent = f"{category} {intent_keyword}".strip()
+        
+        if search_intent:
+            relevant_scores = self.shop_scores[
+                self.shop_scores['search_query'].fillna('').str.contains(search_intent, regex=False)
+            ]
+        else:
+            relevant_scores = self.shop_scores
+
         merged_df = pd.merge(filtered_shops, relevant_scores, on='shop_id', how='left')
         merged_df['score'] = merged_df['score'].fillna(0)
+        
+        if search_intent and merged_df['score'].sum() == 0:
+            keyword_mask = merged_df['categories'].fillna('') + " " + merged_df['menus'].fillna('')
+            merged_df.loc[keyword_mask.str.contains(search_intent.replace(" ", "|"), regex=True), 'score'] += 10.0
+
         merged_df = merged_df.drop_duplicates(subset=['shop_id'])
         ranked_shops = merged_df.sort_values(by='score', ascending=False)
         
+        if ranked_shops.empty: return []
+
         top_3 = ranked_shops.head(3)
         result = []
         for _, row in top_3.iterrows():
@@ -207,12 +206,31 @@ class RecommendationEngine:
 # 4. 추천 엔진 초기화
 engine = None
 try:
-    shops_path = "shops.csv"
-    logs_path = "logs.csv"
+    # --- 경로 수정 ---
+    # 이 파일(chat.py)의 위치에서 세 번 위로 올라가 프로젝트 루트를 찾습니다.
+    # app/routers/chat.py -> app/routers -> app -> 프로젝트 루트
+    PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    shops_path = os.path.join(PROJECT_ROOT, "shops.csv")
+    logs_path = os.path.join(PROJECT_ROOT, "logs.csv")
+    
+    print("="*50)
+    print(" FastAPI 서버 시작: 추천 엔진 초기화 시도")
+    print(f" - 프로젝트 루트: {PROJECT_ROOT}")
+    print(f" - 상점 데이터 경로: {shops_path}")
+    print(f" - 로그 데이터 경로: {logs_path}")
+
     if os.path.exists(shops_path) and os.path.exists(logs_path):
         engine = RecommendationEngine(shops_path, logs_path)
-except Exception:
-    pass
+        print(" ✅ 추천 엔진이 성공적으로 초기화되었습니다.")
+    else:
+        print(" ❌ 에러: 'shops.csv' 또는 'logs.csv' 파일을 찾을 수 없습니다.")
+        engine = None
+    print("="*50)
+
+except Exception as e:
+    print(f" ❌❌❌ 추천 엔진 초기화 중 심각한 오류 발생: {e}")
+    print(traceback.format_exc())
+    engine = None
 
 user_memory = {}
 
@@ -240,15 +258,29 @@ async def chat_with_bot(req: ChatRequest):
 
     extracted = await extraction_chain.ainvoke({"message": req.message})
 
+    # 🧠 [선택적 기억 장치: 알러지는 평생 기억, 나머지는 쿨하게 잊기]
     if req.user_id not in user_memory:
-        user_memory[req.user_id] = {"exclude_keyword": ""}
+        # 이제 메모리장부에는 '알러지'와 최소한의 편의를 위한 '지역' 딱 두 개만 적어둡니다.
+        user_memory[req.user_id] = {"exclude_keyword": "", "region": ""}
 
-        # 만약 유저가 이번 질문에서 "~~빼줘"라고 새로 말했다면 기억 업데이트!
+    # 1. 알러지/제외 (Hard Constraint): 생명과 직결되니 무조건 '누적'해서 평생 기억!
     if extracted.exclude_keyword:
-        user_memory[req.user_id]["exclude_keyword"] = extracted.exclude_keyword
-        # 새로 말 안 했어도, 과거에 "해산물 빼줘"라고 한 기억이 있다면 그걸 꺼내서 적용!
+        old_exclude = user_memory[req.user_id]["exclude_keyword"]
+        new_exclude = f"{old_exclude}|{extracted.exclude_keyword}".strip("|") if old_exclude else extracted.exclude_keyword
+        user_memory[req.user_id]["exclude_keyword"] = new_exclude
+        extracted.exclude_keyword = new_exclude
     else:
+        # 새로 말 안 했어도 옛날 알러지 기억을 끄집어옴
         extracted.exclude_keyword = user_memory[req.user_id]["exclude_keyword"]
+
+    # 2. 지역 (UX 편의): 매번 "강남" 치기 귀찮으니 기억하되, 다른 동네 말하면 쿨하게 덮어쓰기!
+    if extracted.region:
+        user_memory[req.user_id]["region"] = extracted.region
+    else:
+        extracted.region = user_memory[req.user_id]["region"]
+
+    # 3. 메뉴(category) & 목적(intent): 기억 안 함! ❌
+    # 유저의 마음은 갈대이므로, "방금" 말한 데이터(extracted)만 바로 DB로 넘겨버립니다.
 
     recommendation_data = engine.get_recommendation(
         region=extracted.region,
