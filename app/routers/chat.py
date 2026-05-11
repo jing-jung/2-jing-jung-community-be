@@ -2,6 +2,7 @@ import pandas as pd
 import urllib.parse
 import os
 import numpy as np
+import json
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from langchain_groq import ChatGroq
@@ -87,8 +88,9 @@ answer_prompt = ChatPromptTemplate.from_messages([
 ])
 answer_chain = answer_prompt | llm | StrOutputParser()
 
-
 # 3. 클래스 정의
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 class RecommendationEngine:
     def __init__(self, shops_path: str, logs_path: str):
         self.shops_df = pd.read_csv(shops_path)
@@ -96,9 +98,16 @@ class RecommendationEngine:
         self._preprocess_data()
 
     def _preprocess_data(self):
+        weights_path = os.path.join(BASE_DIR, "weights.json")
+        if os.path.exists(weights_path):
+            with open(weights_path, "r") as f:
+                weights = json.load(f)
+        else:
+            # 파일이 없을 때를 대비한 기본값
+            weights = {'impression': 0.2, 'view': 3.4, 'click': 2.3, 'bookmark': 2.8, 'reservation': 100.0}
+
         self.logs_df = self.logs_df.sort_values(by=['session_id', 'event_timestamp'])
         self.logs_df['search_query'] = self.logs_df.groupby('session_id')['search_query'].ffill()
-        weights = {'impression': 1, 'click': 2, 'view': 3, 'bookmark': 10, 'reservation': 20}
         self.logs_df['score'] = self.logs_df['event_type'].map(weights).fillna(0)
         self.shop_scores = self.logs_df.groupby(['shop_id', 'search_query'])['score'].sum().reset_index()
 
