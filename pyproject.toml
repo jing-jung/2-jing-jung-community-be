@@ -4,21 +4,42 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "2-jing-jung-community-be"
-version = "0.1.0"
-# 도커 이미지 버전(3.11)과 맞추거나 범위를 넓혀줍니다.
+version = "2.0.0"
+description = "Production-ready Community Platform with advanced architecture"
 requires-python = ">=3.11"
 dependencies = [
+  # Core Framework
   "fastapi>=0.115",
   "uvicorn[standard]>=0.27",
-  "sqlalchemy",         # <-- 여기에 'sqlalchemy.sql'이 아니라 이렇게 적어야 합니다.
-  "pymysql",            # <-- MySQL 연결을 위한 드라이버 (필수)
-  "bcrypt",
+  "pydantic>=2.0",
+  "pydantic-settings>=2.0",
   "python-multipart",
-  "aioredis",
+  "python-dotenv",
+  
+  # Database
+  "sqlalchemy>=2.0",
+  "pymysql",
+  "aiomysql",  # Async MySQL support
+  
+  # Caching & Queue
+  "redis>=5.0",
+  "hiredis",  # Redis performance boost
+  
+  # Security
+  "bcrypt",
+  "passlib[bcrypt]",
+  "python-jose[cryptography]",  # JWT
+  
+  # Monitoring & Logging
+  "prometheus-client",
+  "loguru",
+  
+  # AI/ML (기존)
   "pandas",
   "langchain-groq",
   "langchain",
   "langchain-core",
-  "pydantic",
-  "python-dotenv"
+  
+  # AWS (Optional)
+  "boto3",  # S3 upload
 ]
