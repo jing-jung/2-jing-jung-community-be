@@ -3,8 +3,8 @@
 # 100만명 이상 동시접속 대응 아키텍처
 # =============================================================================
 
+# 1. Redis Cluster ConfigMap
 ---
-# 1. Redis Cluster (고가용성 캐시)
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -19,6 +19,7 @@ data:
     maxmemory 2gb
     maxmemory-policy allkeys-lru
 
+# 2. Redis Cluster StatefulSet
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -26,8 +27,8 @@ metadata:
   name: redis-cluster
   namespace: default
 spec:
-  serviceName: redis-cluster
-  replicas: 6  # 3 Master + 3 Slave
+  serviceName: redis-cluster-svc
+  replicas: 6
   selector:
     matchLabels:
       app: redis-cluster
@@ -37,55 +38,67 @@ spec:
         app: redis-cluster
     spec:
       containers:
-        - name: redis
-          image: redis:7-alpine
-          ports:
-            - containerPort: 6379
-              name: client
-            - containerPort: 16379
-              name: gossip
-          command:
-            - redis-server
-            - /conf/redis.conf
-          volumeMounts:
-            - name: conf
-              mountPath: /conf
-            - name: data
-              mountPath: /data
-          resources:
-            requests:
-              cpu: 500m
-              memory: 2Gi
-            limits:
-              cpu: 2000m
-              memory: 4Gi
-      volumes:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+          name: client
+        - containerPort: 16379
+          name: gossip
+        command:
+        - redis-server
+        - /conf/redis.conf
+        volumeMounts:
         - name: conf
-          configMap:
-            name: redis-cluster-config
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: ["ReadWriteOnce"]
+          mountPath: /conf
+        - name: data
+          mountPath: /data
         resources:
           requests:
-            storage: 10Gi
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
+      volumes:
+      - name: conf
+        configMap:
+          name: redis-cluster-config
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 10Gi
 
+# 3. Redis Cluster Service
 ---
-# 2. Backend Deployment (Ultra Scale)
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cluster-svc
+  namespace: default
+spec:
+  clusterIP: None
+  selector:
+    app: redis-cluster
+  ports:
+  - name: client
+    port: 6379
+  - name: gossip
+    port: 16379
+
+# 4. Backend Deployment
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: backend-ultra-deployment
+  name: backend-ultra
   namespace: default
 spec:
-  replicas: 20  # 초기 20개 (최대 100개까지 확장)
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 10
-      maxUnavailable: 0
+  replicas: 20
   selector:
     matchLabels:
       app: backend-ultra
@@ -93,80 +106,56 @@ spec:
     metadata:
       labels:
         app: backend-ultra
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "5000"
     spec:
-      affinity:
-        # Pod를 여러 노드에 분산
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchExpressions:
-                    - key: app
-                      operator: In
-                      values:
-                        - backend-ultra
-                topologyKey: kubernetes.io/hostname
-      
       containers:
-        - name: backend
-          image: "016562553479.dkr.ecr.ap-southeast-2.amazonaws.com/community-be:latest"
-          ports:
-            - containerPort: 5000
-          
-          env:
-            # Database
-            - name: DB_HOST
-              value: "$DB_HOST"
-            - name: DB_USER
-              value: "$DB_USER"
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: backend-secret
-                  key: DB_PASSWORD
-            - name: DB_POOL_SIZE
-              value: "50"  # 대폭 증가
-            - name: DB_MAX_OVERFLOW
-              value: "100"  # 대폭 증가
-            
-            # Redis Cluster
-            - name: REDIS_HOST
-              value: "redis-cluster"
-            - name: REDIS_CLUSTER_ENABLED
-              value: "true"
-            
-            # Performance
-            - name: UVICORN_WORKERS
-              value: "8"  # CPU 코어 수에 맞춤
-          
-          resources:
-            requests:
-              cpu: 2000m
-              memory: 4Gi
-            limits:
-              cpu: 4000m
-              memory: 8Gi
-          
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 5000
-            initialDelaySeconds: 30
-            periodSeconds: 10
-          
-          readinessProbe:
-            httpGet:
-              path: /ready
-              port: 5000
-            initialDelaySeconds: 10
-            periodSeconds: 5
+      - name: backend
+        image: 016562553479.dkr.ecr.ap-southeast-2.amazonaws.com/community-be:latest
+        ports:
+        - containerPort: 5000
+        env:
+        - name: DB_POOL_SIZE
+          value: "50"
+        - name: DB_MAX_OVERFLOW
+          value: "100"
+        - name: REDIS_HOST
+          value: redis-cluster-svc
+        resources:
+          requests:
+            cpu: 2000m
+            memory: 4Gi
+          limits:
+            cpu: 4000m
+            memory: 8Gi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 5000
+          initialDelaySeconds: 10
+          periodSeconds: 5
 
+# 5. Backend Service
 ---
-# 3. HPA (Ultra Scale)
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-ultra-svc
+  namespace: default
+spec:
+  selector:
+    app: backend-ultra
+  ports:
+  - port: 80
+    targetPort: 5000
+  type: ClusterIP
+
+# 6. HPA
+---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -176,336 +165,19 @@ spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: backend-ultra-deployment
+    name: backend-ultra
   minReplicas: 20
-  maxReplicas: 100  # 100개까지 확장
+  maxReplicas: 100
   metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 60  # 더 공격적인 스케일링
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 70
-  behavior:
-    scaleUp:
-      stabilizationWindowSeconds: 0
-      policies:
-        - type: Percent
-          value: 100
-          periodSeconds: 15
-        - type: Pods
-          value: 10
-          periodSeconds: 15
-      selectPolicy: Max
-    scaleDown:
-      stabilizationWindowSeconds: 300
-      policies:
-        - type: Percent
-          value: 50
-          periodSeconds: 60
-
----
-# 4. Backend Service
-apiVersion: v1
-kind: Service
-metadata:
-  name: backend-ultra-service
-  namespace: default
-spec:
-  selector:
-    app: backend-ultra
-  ports:
-    - name: http
-      protocol: TCP
-      port: 80
-      targetPort: 5000
-  type: ClusterIP
-  sessionAffinity: ClientIP
-
----
-# 5. Redis Cluster Service
-apiVersion: v1
-kind: Service
-metadata:
-  name: redis-cluster
-  namespace: default
-spec:
-  selector:
-    app: redis-cluster
-  ports:
-    - name: client
-      port: 6379
-      targetPort: 6379
-    - name: gossip
-      port: 16379
-      targetPort: 16379
-  type: ClusterIP
-  clusterIP: None  # Headless service for StatefulSet
-
----
-# 6. Message Queue (RabbitMQ for async tasks)
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: rabbitmq
-  namespace: default
-spec:
-  serviceName: rabbitmq
-  replicas: 3
-  selector:
-    matchLabels:
-      app: rabbitmq
-  template:
-    metadata:
-      labels:
-        app: rabbitmq
-    spec:
-      containers:
-        - name: rabbitmq
-          image: rabbitmq:3-management-alpine
-          ports:
-            - containerPort: 5672
-              name: amqp
-            - containerPort: 15672
-              name: management
-          env:
-            - name: RABBITMQ_DEFAULT_USER
-              value: admin
-            - name: RABBITMQ_DEFAULT_PASS
-              valueFrom:
-                secretKeyRef:
-                  name: backend-secret
-                  key: RABBITMQ_PASSWORD
-          volumeMounts:
-            - name: data
-              mountPath: /var/lib/rabbitmq
-          resources:
-            requests:
-              cpu: 1000m
-              memory: 2Gi
-            limits:
-              cpu: 2000m
-              memory: 4Gi
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 20Gi
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: rabbitmq-service
-  namespace: default
-spec:
-  selector:
-    app: rabbitmq
-  ports:
-    - name: amqp
-      port: 5672
-      targetPort: 5672
-    - name: management
-      port: 15672
-      targetPort: 15672
-  type: ClusterIP
-
-
-
----
-# 7. NGINX Ingress with Rate Limiting
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: nginx-rate-limit-config
-  namespace: default
-data:
-  nginx.conf: |
-    limit_req_zone $binary_remote_addr zone=api_limit:100m rate=100r/s;
-    limit_req_zone $binary_remote_addr zone=websocket_limit:50m rate=50r/s;
-    
-    server {
-      listen 80;
-      
-      location /api/ {
-        limit_req zone=api_limit burst=200 nodelay;
-        proxy_pass http://backend-ultra-service;
-      }
-      
-      location /ws/ {
-        limit_req zone=websocket_limit burst=100 nodelay;
-        proxy_pass http://backend-ultra-service;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-      }
-    }
-
----
-# 8. ProxySQL Service
-apiVersion: v1
-kind: Service
-metadata:
-  name: proxysql-service
-  namespace: default
-spec:
-  selector:
-    app: proxysql
-  ports:
-    - name: mysql
-      port: 6033
-      targetPort: 6033
-  type: ClusterIP
-
----
-# 9. Database Connection Pooler (ProxySQL)
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: proxysql
-  namespace: default
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: proxysql
-  template:
-    metadata:
-      labels:
-        app: proxysql
-    spec:
-      containers:
-        - name: proxysql
-          image: proxysql/proxysql:latest
-          ports:
-            - containerPort: 6033
-          resources:
-            requests:
-              cpu: 1000m
-              memory: 1Gi
-            limits:
-              cpu: 2000m
-              memory: 2Gi
-
----
-# 10. Elasticsearch Service
-apiVersion: v1
-kind: Service
-metadata:
-  name: elasticsearch-service
-  namespace: default
-spec:
-  selector:
-    app: elasticsearch
-  ports:
-    - name: http
-      port: 9200
-      targetPort: 9200
-    - name: transport
-      port: 9300
-      targetPort: 9300
-  type: ClusterIP
-  clusterIP: None  # Headless service
-
----
-# 11. Elasticsearch for Log Aggregation (선택사항)
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: elasticsearch
-  namespace: default
-spec:
-  serviceName: elasticsearch
-  replicas: 3
-  selector:
-    matchLabels:
-      app: elasticsearch
-  template:
-    metadata:
-      labels:
-        app: elasticsearch
-    spec:
-      containers:
-        - name: elasticsearch
-          image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
-          ports:
-            - containerPort: 9200
-            - containerPort: 9300
-          env:
-            - name: discovery.type
-              value: "single-node"
-            - name: ES_JAVA_OPTS
-              value: "-Xms2g -Xmx2g"
-          volumeMounts:
-            - name: data
-              mountPath: /usr/share/elasticsearch/data
-          resources:
-            requests:
-              cpu: 2000m
-              memory: 4Gi
-            limits:
-              cpu: 4000m
-              memory: 8Gi
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 100Gi
-
----
-# 12. Cluster Autoscaler ServiceAccount
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: cluster-autoscaler
-  namespace: kube-system
-  annotations:
-    eks.amazonaws.com/role-arn: "arn:aws:iam::016562553479:role/cluster-autoscaler-role"
-
----
-# 13. Cluster Autoscaler Deployment
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: cluster-autoscaler
-  namespace: kube-system
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: cluster-autoscaler
-  template:
-    metadata:
-      labels:
-        app: cluster-autoscaler
-    spec:
-      serviceAccountName: cluster-autoscaler
-      containers:
-        - name: cluster-autoscaler
-          image: k8s.gcr.io/autoscaling/cluster-autoscaler:v1.27.0
-          command:
-            - ./cluster-autoscaler
-            - --cloud-provider=aws
-            - --namespace=kube-system
-            - --nodes=10:100:eks-node-group
-            - --scale-down-enabled=true
-            - --scale-down-delay-after-add=10m
-          resources:
-            requests:
-              cpu: 100m
-              memory: 300Mi
-            limits:
-              cpu: 500m
-              memory: 1Gi
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 70
