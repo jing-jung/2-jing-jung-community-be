@@ -10,7 +10,7 @@ metadata:
   name: backend-sa
   namespace: default
   annotations:
-    eks.amazonaws.com/role-arn: "arn:aws:iam::016562553479:role/community-backend-app-role"
+    eks.amazonaws.com/role-arn: "arn:aws:iam::389998437416:role/comm-be-backend-pod-role"
 
 ---
 # 2. ConfigMap for Configuration
@@ -26,20 +26,6 @@ data:
   DB_NAME: "communitydb"
   REDIS_PORT: "6379"
   REDIS_DB: "0"
-
----
-# 3. Secret for Sensitive Data (Base64 encoded)
-# kubectl create secret generic backend-secret --from-literal=DB_PASSWORD=your_password --from-literal=JWT_SECRET=your_jwt_secret
-apiVersion: v1
-kind: Secret
-metadata:
-  name: backend-secret
-  namespace: default
-type: Opaque
-data:
-  DB_PASSWORD: $DB_PASSWORD  # Base64 encoded
-  JWT_SECRET_KEY: $JWT_SECRET_KEY  # Base64 encoded
-  SESSION_SECRET_KEY: $SESSION_SECRET_KEY
 
 ---
 # 4. Redis Deployment
@@ -137,14 +123,11 @@ spec:
       initContainers:
         - name: wait-for-db
           image: busybox:latest
-          command: ['sh', '-c', 'until nc -z $DB_HOST 3306; do echo waiting for db; sleep 2; done;']
-          env:
-            - name: DB_HOST
-              value: "$DB_HOST"
+          command: ['sh', '-c', 'echo "Skipping DB wait for ElastiCache/RDS setup"']
       
       containers:
         - name: backend-container
-          image: "016562553479.dkr.ecr.ap-southeast-2.amazonaws.com/community-be:latest"
+          image: "389998437416.dkr.ecr.ap-southeast-2.amazonaws.com/comm-be:latest"
           imagePullPolicy: Always
           
           ports:
@@ -156,9 +139,15 @@ spec:
           env:
             # Database
             - name: DB_HOST
-              value: "$DB_HOST"
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: DB_HOST
             - name: DB_USER
-              value: "$DB_USER"
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: DB_USER
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -175,9 +164,12 @@ spec:
                   name: backend-config
                   key: DB_NAME
             
-            # Redis
+            # Redis (ElastiCache)
             - name: REDIS_HOST
-              value: "redis-service"
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: REDIS_HOST
             - name: REDIS_PORT
               valueFrom:
                 configMapKeyRef:
@@ -195,6 +187,11 @@ spec:
                 secretKeyRef:
                   name: backend-secret
                   key: SESSION_SECRET_KEY
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: GROQ_API_KEY
             
             # Application
             - name: ENVIRONMENT
@@ -278,7 +275,6 @@ spec:
       port: 80
       targetPort: 5000
   type: ClusterIP
-  sessionAffinity: ClientIP  # Sticky session
 
 ---
 # 8. Horizontal Pod Autoscaler (HPA)
