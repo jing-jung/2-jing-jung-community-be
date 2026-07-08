@@ -13,8 +13,8 @@ resource "aws_elasticache_subnet_group" "main" {
 
 # Redis Replication Group (Cluster Mode Disabled)
 resource "aws_elasticache_replication_group" "redis" {
-  replication_group_id       = "${var.project_name}-redis"
-  replication_group_description = "Redis cluster for ${var.project_name}"
+  replication_group_id = "${var.project_name}-redis"
+  description          = "Redis cluster for ${var.project_name}"
   
   engine               = "redis"
   engine_version       = "7.0"

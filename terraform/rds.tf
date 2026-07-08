@@ -83,9 +83,8 @@ resource "aws_db_instance" "primary" {
   deletion_protection = false  # 테스트용, 프로덕션에서는 true
   skip_final_snapshot = true   # 테스트용, 프로덕션에서는 false
 
-  # Performance Insights
-  performance_insights_enabled    = true
-  performance_insights_retention_period = 7
+  # Performance Insights (t3.micro는 지원 안 함)
+  performance_insights_enabled    = false
 
   tags = {
     Name = "${var.project_name}-db-primary"
@@ -105,9 +104,8 @@ resource "aws_db_instance" "replica" {
   monitoring_interval = 60
   monitoring_role_arn = aws_iam_role.rds_monitoring.arn
 
-  # Performance Insights
-  performance_insights_enabled    = true
-  performance_insights_retention_period = 7
+  # Performance Insights (t3.micro는 지원 안 함)
+  performance_insights_enabled    = false
 
   skip_final_snapshot = true
 
