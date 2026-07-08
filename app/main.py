@@ -387,7 +387,13 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
-    log.error(f"Unhandled exception on {request.url.path}: {exc}", exc_info=True)
+    try:
+        error_msg = f"Unhandled exception on {request.url.path}: {str(exc)}"
+        log.error(error_msg, exc_info=True)
+    except Exception as log_error:
+        print(f"Logging error: {log_error}")
+        print(f"Original exception: {exc}")
+    
     return JSONResponse(
         status_code=500,
         content={
