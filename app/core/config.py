@@ -63,8 +63,7 @@ class Settings(BaseSettings):
         "http://127.0.0.1:8000",
         "http://localhost:5500",
         "http://127.0.0.1:5500",
-        "http://a22c2af193d0748679f7de8470f9b94e-1252573009.ap-southeast-2.elb.amazonaws.com",
-        "http://k8s-communityapp-8f25ecd116-278697788.ap-southeast-2.elb.amazonaws.com",
+        "http://k8s-communityapp-8f25ecd116-278697788.ap-southeast-2.elb.amazonaws.com",  # ALB Ingress
     ]
     
     # AWS
