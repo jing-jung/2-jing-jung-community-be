@@ -85,7 +85,14 @@ def login_controller(email, password, response, db):
     )
     db.commit()
 
-    response.set_cookie(key="session_id", value=session_id, httponly=True, samesite="None", secure=True)
+        # HTTP 환경에서는 secure=False로 설정 (프로덕션에서는 HTTPS + secure=True 권장)
+    response.set_cookie(
+        key="session_id", 
+        value=session_id, 
+        httponly=True, 
+        samesite="lax",  # None은 secure=True 필요, lax는 HTTP에서 작동
+        secure=False  # HTTP 환경용
+    )
     return {"message": "로그인 성공", "session_id": session_id}
 
 
