@@ -29,7 +29,7 @@ from app.core.metrics import (
 
 # Routers
 from app.routers.routes import router
-from app.routers.chat import router as chat_router
+from app.routers.chat import router as chat_router, init_recommendation_engine
 
 # Models
 from app.models import model
@@ -54,6 +54,9 @@ async def lifespan(app: FastAPI):
     
     # Redis 연결
     await redis_manager.connect()
+    
+    # 추천 엔진 초기화 (CSV 로딩)
+    await init_recommendation_engine()
     
     # 애플리케이션 정보 메트릭
     app_info.info({
@@ -182,8 +185,8 @@ app.include_router(chat_router)
 @app.websocket("/ws/{room_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: int):
     """실시간 채팅 WebSocket (메트릭 및 로깅 포함)"""
-    db = db_manager.SessionLocal()
     sender_id = None
+    connection_accepted = False
 
     try:
         # 1. 인증: 세션 토큰 확인
@@ -199,27 +202,30 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int):
         
         if not sender_id:
             # Fallback to DB
-            sql = text("SELECT data FROM sessions WHERE session_id = :session_id")
-            result = db.execute(sql, {"session_id": token}).fetchone()
+            with db_manager.session_scope() as db:
+                sql = text("SELECT data FROM sessions WHERE session_id = :session_id")
+                result = db.execute(sql, {"session_id": token}).fetchone()
 
-            if not result:
-                log.warning(f"WebSocket connection rejected - Invalid session (room: {room_id})")
+                if not result:
+                    log.warning(f"WebSocket connection rejected - Invalid session (room: {room_id})")
+                    await websocket.close(code=1008)
+                    return
+
+                sender_id = int(result.data)
+                # 세션을 Redis에 캐싱
+                await redis_manager.set_session(token, sender_id)
+
+        # 2. 참여 권한 확인
+        with db_manager.session_scope() as db:
+            sql_check = text("SELECT id FROM chat_participants WHERE room_id = :room_id AND user_id = :user_id")
+            if not db.execute(sql_check, {"room_id": room_id, "user_id": sender_id}).fetchone():
+                log.warning(f"WebSocket connection rejected - User {sender_id} not in room {room_id}")
                 await websocket.close(code=1008)
                 return
 
-            sender_id = int(result.data)
-            # 세션을 Redis에 캐싱
-            await redis_manager.set_session(token, sender_id)
-
-        # 2. 참여 권한 확인
-        sql_check = text("SELECT id FROM chat_participants WHERE room_id = :room_id AND user_id = :user_id")
-        if not db.execute(sql_check, {"room_id": room_id, "user_id": sender_id}).fetchone():
-            log.warning(f"WebSocket connection rejected - User {sender_id} not in room {room_id}")
-            await websocket.close(code=1008)
-            return
-
         # 3. 연결 수립
         await manager.connect(room_id, websocket)
+        connection_accepted = True
 
         # 4. 메시지 수신 및 브로드캐스트
         while True:
@@ -229,16 +235,16 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int):
 
             if content:
                 # 메시지 저장
-                insert_sql = text("""
-                    INSERT INTO messages (room_id, sender_id, content, created_at, is_read)
-                    VALUES (:room_id, :sender_id, :content, NOW(), 0)
-                """)
-                db.execute(insert_sql, {
-                    "room_id": room_id,
-                    "sender_id": sender_id,
-                    "content": content
-                })
-                db.commit()
+                with db_manager.session_scope() as db:
+                    insert_sql = text("""
+                        INSERT INTO messages (room_id, sender_id, content, created_at, is_read)
+                        VALUES (:room_id, :sender_id, :content, NOW(), 0)
+                    """)
+                    db.execute(insert_sql, {
+                        "room_id": room_id,
+                        "sender_id": sender_id,
+                        "content": content
+                    })
 
                 response_message = {
                     "room_id": room_id,
@@ -255,12 +261,11 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int):
 
     except WebSocketDisconnect:
         log.info(f"WebSocket disconnected - Room: {room_id}, User: {sender_id}")
-        manager.disconnect(room_id, websocket)
     except Exception as e:
-        log.error(f"WebSocket error in room {room_id}: {e}")
-        manager.disconnect(room_id, websocket)
+        log.error(f"WebSocket error in room {room_id}: {e}", exc_info=True)
     finally:
-        db.close()
+        if connection_accepted:
+            manager.disconnect(room_id, websocket)
 
 
 # =============================================================================

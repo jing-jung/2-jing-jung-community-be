@@ -4,8 +4,10 @@ import os
 import numpy as np
 import json
 import traceback
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+import asyncio
+from cachetools import TTLCache
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -203,36 +205,39 @@ class RecommendationEngine:
         }
 
 
-# 4. 추천 엔진 초기화
+# 4. 추천 엔진 초기화 (전역 변수)
 engine = None
-try:
-    # --- 경로 수정 ---
-    # 이 파일(chat.py)의 위치에서 세 번 위로 올라가 프로젝트 루트를 찾습니다.
-    # app/routers/chat.py -> app/routers -> app -> 프로젝트 루트
-    PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    shops_path = os.path.join(PROJECT_ROOT, "shops.csv")
-    logs_path = os.path.join(PROJECT_ROOT, "logs.csv")
-    
-    print("="*50)
-    print(" FastAPI 서버 시작: 추천 엔진 초기화 시도")
-    print(f" - 프로젝트 루트: {PROJECT_ROOT}")
-    print(f" - 상점 데이터 경로: {shops_path}")
-    print(f" - 로그 데이터 경로: {logs_path}")
 
-    if os.path.exists(shops_path) and os.path.exists(logs_path):
-        engine = RecommendationEngine(shops_path, logs_path)
-        print(" ✅ 추천 엔진이 성공적으로 초기화되었습니다.")
-    else:
-        print(" ❌ 에러: 'shops.csv' 또는 'logs.csv' 파일을 찾을 수 없습니다.")
+
+async def init_recommendation_engine():
+    """
+    추천 엔진 초기화 (서버 시작 시 한 번만 실행)
+    FastAPI lifespan에서 호출
+    """
+    global engine
+    try:
+        PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        shops_path = os.path.join(PROJECT_ROOT, "shops.csv")
+        logs_path = os.path.join(PROJECT_ROOT, "logs.csv")
+        
+        print("="*50)
+        print(" FastAPI 서버 시작: 추천 엔진 초기화 시도")
+        print(f" - 프로젝트 루트: {PROJECT_ROOT}")
+        print(f" - 상점 데이터 경로: {shops_path}")
+        print(f" - 로그 데이터 경로: {logs_path}")
+
+        if os.path.exists(shops_path) and os.path.exists(logs_path):
+            engine = RecommendationEngine(shops_path, logs_path)
+            print(" ✅ 추천 엔진이 성공적으로 초기화되었습니다.")
+        else:
+            print(" ❌ 에러: 'shops.csv' 또는 'logs.csv' 파일을 찾을 수 없습니다.")
+            engine = None
+        print("="*50)
+
+    except Exception as e:
+        print(f" ❌❌❌ 추천 엔진 초기화 중 심각한 오류 발생: {e}")
+        print(traceback.format_exc())
         engine = None
-    print("="*50)
-
-except Exception as e:
-    print(f" ❌❌❌ 추천 엔진 초기화 중 심각한 오류 발생: {e}")
-    print(traceback.format_exc())
-    engine = None
-
-user_memory = {}
 
 # 5. API 라우터
 @router.get("/chat/test")
@@ -245,6 +250,10 @@ def evaluate_model():
     if engine is None:
         return {"error": "추천 엔진이 초기화되지 않았습니다."}
     return engine.evaluate_performance()
+
+
+# 메모리 누수 방지: TTL 캐시 사용 (30분 후 자동 삭제)
+user_memory = TTLCache(maxsize=10000, ttl=1800)
 
 
 @router.post("/chat")
@@ -260,7 +269,6 @@ async def chat_with_bot(req: ChatRequest):
 
     # 🧠 [선택적 기억 장치: 알러지는 평생 기억, 나머지는 쿨하게 잊기]
     if req.user_id not in user_memory:
-        # 이제 메모리장부에는 '알러지'와 최소한의 편의를 위한 '지역' 딱 두 개만 적어둡니다.
         user_memory[req.user_id] = {"exclude_keyword": "", "region": ""}
 
     # 1. 알러지/제외 (Hard Constraint): 생명과 직결되니 무조건 '누적'해서 평생 기억!
@@ -270,17 +278,15 @@ async def chat_with_bot(req: ChatRequest):
         user_memory[req.user_id]["exclude_keyword"] = new_exclude
         extracted.exclude_keyword = new_exclude
     else:
-        # 새로 말 안 했어도 옛날 알러지 기억을 끄집어옴
-        extracted.exclude_keyword = user_memory[req.user_id]["exclude_keyword"]
+        extracted.exclude_keyword = user_memory[req.user_id].get("exclude_keyword", "")
 
     # 2. 지역 (UX 편의): 매번 "강남" 치기 귀찮으니 기억하되, 다른 동네 말하면 쿨하게 덮어쓰기!
     if extracted.region:
         user_memory[req.user_id]["region"] = extracted.region
     else:
-        extracted.region = user_memory[req.user_id]["region"]
+        extracted.region = user_memory[req.user_id].get("region", "")
 
     # 3. 메뉴(category) & 목적(intent): 기억 안 함! ❌
-    # 유저의 마음은 갈대이므로, "방금" 말한 데이터(extracted)만 바로 DB로 넘겨버립니다.
 
     recommendation_data = engine.get_recommendation(
         region=extracted.region,

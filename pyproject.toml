@@ -21,9 +21,10 @@ dependencies = [
   "pymysql",
   "aiomysql",  # Async MySQL support
   
-  # Caching & Queue
+    # Caching & Queue
   "redis>=5.0",
   "hiredis",  # Redis performance boost
+  "cachetools",  # TTL cache for in-memory
   
   # Security
   "bcrypt",
