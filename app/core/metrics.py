@@ -4,6 +4,7 @@ Prometheus Metrics for Monitoring
 """
 from prometheus_client import Counter, Histogram, Gauge, Info, generate_latest, REGISTRY
 from fastapi import Request
+from starlette.middleware.base import BaseHTTPMiddleware
 import time
 from app.core.logging import log
 
@@ -80,12 +81,12 @@ websocket_messages_total = Counter(
 app_info = Info('app', 'Application information')
 
 
-class MetricsMiddleware:
+class MetricsMiddleware(BaseHTTPMiddleware):
     """
     Prometheus 메트릭 수집 미들웨어
     """
     
-    async def __call__(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next):
         method = request.method
         endpoint = request.url.path
         

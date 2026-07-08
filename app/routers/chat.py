@@ -260,6 +260,9 @@ user_memory = TTLCache(maxsize=10000, ttl=1800)
 async def chat_with_bot(req: ChatRequest):
     if engine is None:
         return {"reply": "앗, 서버의 장부(데이터)를 읽어오지 못했어요. 잠시만 기다려 주세요! 😭"}
+    
+    if not llm or not intent_chain:
+        return {"reply": "죄송합니다. AI 챗봇 기능이 현재 비활성화되어 있습니다. GROQ_API_KEY를 설정해주세요."}
 
     intent_check = await intent_chain.ainvoke({"message": req.message})
     if "REJECT" in intent_check:
