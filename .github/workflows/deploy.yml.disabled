@@ -1,4 +1,4 @@
-name: Backend Deploy to ECR
+nme: Backend Deploy to ECR
 
 on:
   push:
@@ -34,11 +34,14 @@ jobs:
         run: |
           aws eks update-kubeconfig --name community-eks-cluster --region ${{ secrets.AWS_REGION }}
 
-      - name: Deploy to EKS
+            - name: Deploy to EKS
         env:
           DB_HOST: ${{ secrets.DB_HOST }}
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME || 'communitydb' }}
+          REDIS_HOST: ${{ secrets.REDIS_HOST || 'localhost' }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY || '' }}
         run: |
           envsubst < backend-deployment.yaml | kubectl apply -f -
           kubectl rollout restart deployment backend-deployment

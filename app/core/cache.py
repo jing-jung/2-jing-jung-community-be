@@ -151,6 +151,33 @@ class RedisManager:
     async def release_lock(self, lock_name: str):
         """분산 락 해제"""
         await self.delete(f"lock:{lock_name}")
+    
+    # 캐시 무효화 (패턴 매칭)
+    async def invalidate_pattern(self, pattern: str):
+        """
+        패턴에 매칭되는 모든 키 삭제
+        예: invalidate_pattern("post_detail:123:*") -> 해당 게시글의 모든 캐시 삭제
+        """
+        if not self.redis:
+            return
+        
+        try:
+            cursor = 0
+            keys_to_delete = []
+            
+            # SCAN으로 패턴 매칭 키 찾기
+            while True:
+                cursor, keys = await self.redis.scan(cursor, match=pattern, count=100)
+                keys_to_delete.extend(keys)
+                if cursor == 0:
+                    break
+            
+            # 일괄 삭제
+            if keys_to_delete:
+                await self.redis.delete(*keys_to_delete)
+                log.info(f"Invalidated {len(keys_to_delete)} cache keys matching: {pattern}")
+        except Exception as e:
+            log.error(f"Cache invalidation error for pattern {pattern}: {e}")
 
 
 # 전역 Redis 인스턴스

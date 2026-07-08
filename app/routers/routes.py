@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from app.db import get_db
 from app.services import controllers
+from app.core.cache import redis_manager  # Redis 매니저
+from app.core.logging import log
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -70,8 +72,30 @@ def delete_user(request: Request, response: Response, db: Session = Depends(get_
 # --- Posts ---
 
 @router.get("/posts")
-def get_posts(offset: int = 0, limit: int = 10, db: Session = Depends(get_db)):
-    return controllers.get_posts_list_controller(offset, limit, db)
+async def get_posts(offset: int = 0, limit: int = 10, db: Session = Depends(get_db)):
+    """게시글 목록 조회 (Redis 캐싱 적용)"""
+    cache_key = f"posts_list:{offset}:{limit}"
+    
+    # 캐시 조회
+    if redis_manager.redis:
+        try:
+            cached = await redis_manager.get(cache_key)
+            if cached:
+                return cached
+        except Exception as e:
+            log.warning(f"Cache read error: {e}")
+    
+    # DB 조회
+    result = controllers.get_posts_list_controller(offset, limit, db)
+    
+    # 캐시 저장
+    if redis_manager.redis:
+        try:
+            await redis_manager.set(cache_key, result, expire=60)
+        except Exception as e:
+            log.warning(f"Cache write error: {e}")
+    
+    return result
 
 @router.post("/posts", status_code=201)
 def create_post(
@@ -84,8 +108,30 @@ def create_post(
     return controllers.create_post_controller(title, content, image, request, db)
 
 @router.get("/posts/{post_id}")
-def get_post_detail(post_id: int, request: Request, db: Session = Depends(get_db)):
-    return controllers.get_post_detail_controller(post_id, request, db)
+async def get_post_detail(post_id: int, request: Request, db: Session = Depends(get_db)):
+    """게시글 상세 조회 (Redis 캐싱 적용)"""
+    cache_key = f"post_detail:{post_id}"
+    
+    # 캐시 조회
+    if redis_manager.redis:
+        try:
+            cached = await redis_manager.get(cache_key)
+            if cached:
+                return cached
+        except Exception as e:
+            log.warning(f"Cache read error: {e}")
+    
+    # DB 조회
+    result = controllers.get_post_detail_controller(post_id, request, db)
+    
+    # 캐시 저장
+    if redis_manager.redis:
+        try:
+            await redis_manager.set(cache_key, result, expire=180)
+        except Exception as e:
+            log.warning(f"Cache write error: {e}")
+    
+    return result
 
 @router.put("/posts/{post_id}")
 def update_post(
@@ -109,8 +155,30 @@ def like_post(post_id: int, request: Request, db: Session = Depends(get_db)):
 # --- Comments ---
 
 @router.get("/posts/{post_id}/comments")
-def get_comments(post_id: int, request: Request, db: Session = Depends(get_db)):
-    return controllers.get_comments_controller(post_id, request, db)
+async def get_comments(post_id: int, request: Request, db: Session = Depends(get_db)):
+    """댓글 목록 조회 (Redis 캐싱 적용)"""
+    cache_key = f"comments:{post_id}"
+    
+    # 캐시 조회
+    if redis_manager.redis:
+        try:
+            cached = await redis_manager.get(cache_key)
+            if cached:
+                return cached
+        except Exception as e:
+            log.warning(f"Cache read error: {e}")
+    
+    # DB 조회
+    result = controllers.get_comments_controller(post_id, request, db)
+    
+    # 캐시 저장
+    if redis_manager.redis:
+        try:
+            await redis_manager.set(cache_key, result, expire=60)
+        except Exception as e:
+            log.warning(f"Cache write error: {e}")
+    
+    return result
 
 @router.post("/posts/{post_id}/comments")
 def create_comment(post_id: int, req: CommentRequest, request: Request, db: Session = Depends(get_db)):

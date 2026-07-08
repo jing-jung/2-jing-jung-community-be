@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     DB_PORT: str = os.getenv("DB_PORT", "3306")
     DB_NAME: str = os.getenv("DB_NAME", "communitydb")
     
+    # Read Replica (읽기 전용) - 선택적
+    READ_REPLICA_HOST: str = os.getenv("READ_REPLICA_HOST", "")
+    READ_REPLICA_PORT: str = os.getenv("READ_REPLICA_PORT", "3306")
+    READ_REPLICA_URL: str = os.getenv("READ_REPLICA_URL", "")  # 직접 URL 제공 가능
+    
     # Database Pool Settings (대규모 트래픽 대응)
     DB_POOL_SIZE: int = 20  # 기본 연결 풀 크기
     DB_MAX_OVERFLOW: int = 40  # 초과 시 최대 연결 수
@@ -82,12 +87,27 @@ class Settings(BaseSettings):
     
     @property
     def database_url(self) -> str:
-        """SQLAlchemy Database URL"""
+        """주 데이터베이스 URL (Primary)"""
         return f"mysql+pymysql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
     
     @property
+    def read_replica_url(self) -> str:
+        """
+        Read Replica URL
+        - READ_REPLICA_URL이 설정되어 있으면 사용
+        - 없으면 READ_REPLICA_HOST로 생성
+        - 둘 다 없으면 Primary 사용
+        """
+        if self.READ_REPLICA_URL:
+            return self.READ_REPLICA_URL
+        elif self.READ_REPLICA_HOST:
+            return f"mysql+pymysql://{self.DB_USER}:{self.DB_PASSWORD}@{self.READ_REPLICA_HOST}:{self.READ_REPLICA_PORT}/{self.DB_NAME}"
+        else:
+            return None  # Primary 사용
+    
+    @property
     def async_database_url(self) -> str:
-        """Async SQLAlchemy Database URL"""
+        """Async SQLAlchemy Database URL (Primary)"""
         return f"mysql+aiomysql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
     
     @property

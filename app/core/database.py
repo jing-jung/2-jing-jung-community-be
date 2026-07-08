@@ -19,59 +19,107 @@ Base = declarative_base()
 
 
 class DatabaseManager:
-    """데이터베이스 연결 관리"""
+    """
+    데이터베이스 연결 관리 (Primary + Read Replica)
+    - Primary: 쓰기 전용
+    - Read Replica: 읽기 전용 (부하 분산)
+    """
     
     def __init__(self):
-        self.engine = None
-        self.SessionLocal = None
-        self._setup_engine()
+        self.primary_engine = None
+        self.read_replica_engine = None
+        self.PrimarySession = None
+        self.ReplicaSession = None
+        self._setup_engines()
     
-    def _setup_engine(self):
+    def _setup_engines(self):
         """
-        데이터베이스 엔진 설정
-        - Connection Pooling 최적화
-        - 자동 재연결
+        Primary 및 Read Replica 엔진 설정
         """
         try:
-            self.engine = create_engine(
+            # Primary DB (쓰기용)
+            self.primary_engine = create_engine(
                 settings.database_url,
                 poolclass=QueuePool,
-                pool_size=settings.DB_POOL_SIZE,  # 기본 연결 수
-                max_overflow=settings.DB_MAX_OVERFLOW,  # 최대 초과 연결
-                pool_timeout=settings.DB_POOL_TIMEOUT,  # 연결 대기 시간
-                pool_recycle=settings.DB_POOL_RECYCLE,  # 연결 재활용 (1시간)
-                pool_pre_ping=True,  # 연결 전 ping 테스트
-                echo=settings.DEBUG,  # SQL 로깅
+                pool_size=settings.DB_POOL_SIZE,
+                max_overflow=settings.DB_MAX_OVERFLOW,
+                pool_timeout=settings.DB_POOL_TIMEOUT,
+                pool_recycle=settings.DB_POOL_RECYCLE,
+                pool_pre_ping=True,
+                echo=settings.DEBUG,
                 connect_args={
                     "connect_timeout": 10,
                     "charset": "utf8mb4"
                 }
             )
             
-            # 연결 풀 이벤트 리스너
-            @event.listens_for(self.engine, "connect")
-            def receive_connect(dbapi_conn, connection_record):
-                log.debug("Database connection established")
+            # Read Replica (읽기용) - 환경변수가 있으면 사용
+            read_replica_url = settings.read_replica_url
+            if read_replica_url:
+                self.read_replica_engine = create_engine(
+                    read_replica_url,
+                    poolclass=QueuePool,
+                    pool_size=settings.DB_POOL_SIZE * 2,  # 읽기가 많으므로 2배
+                    max_overflow=settings.DB_MAX_OVERFLOW * 2,
+                    pool_timeout=settings.DB_POOL_TIMEOUT,
+                    pool_recycle=settings.DB_POOL_RECYCLE,
+                    pool_pre_ping=True,
+                    echo=settings.DEBUG,
+                    connect_args={
+                        "connect_timeout": 10,
+                        "charset": "utf8mb4"
+                    }
+                )
+                log.info(f"✅ Read Replica engine created - Pool size: {settings.DB_POOL_SIZE * 2}")
+            else:
+                # Read Replica가 없으면 Primary 사용
+                self.read_replica_engine = self.primary_engine
+                log.warning("⚠️ Read Replica not configured, using Primary for reads")
             
-            @event.listens_for(self.engine, "checkout")
+            # 연결 풀 이벤트 리스너
+            @event.listens_for(self.primary_engine, "connect")
+            def receive_connect(dbapi_conn, connection_record):
+                log.debug("Primary DB connection established")
+            
+            @event.listens_for(self.primary_engine, "checkout")
             def receive_checkout(dbapi_conn, connection_record, connection_proxy):
-                # 연결 체크아웃 시 타임아웃 설정
                 cursor = dbapi_conn.cursor()
-                cursor.execute("SET SESSION wait_timeout=300")  # 5분
+                cursor.execute("SET SESSION wait_timeout=300")
                 cursor.execute("SET SESSION interactive_timeout=300")
                 cursor.close()
             
-            self.SessionLocal = sessionmaker(
+            # Session Factory
+            self.PrimarySession = sessionmaker(
                 autocommit=False,
                 autoflush=False,
-                bind=self.engine
+                bind=self.primary_engine
             )
             
-            log.info(f"✅ Database engine created - Pool size: {settings.DB_POOL_SIZE}, Max overflow: {settings.DB_MAX_OVERFLOW}")
+            self.ReplicaSession = sessionmaker(
+                autocommit=False,
+                autoflush=False,
+                bind=self.read_replica_engine
+            )
+            
+            # 호환성을 위해 SessionLocal도 유지
+            self.SessionLocal = self.PrimarySession
+            self.engine = self.primary_engine
+            
+            log.info(f"✅ Database engines created - Primary pool: {settings.DB_POOL_SIZE}, Replica pool: {settings.DB_POOL_SIZE * 2}")
             
         except Exception as e:
             log.error(f"❌ Database engine creation failed: {e}")
             raise
+    
+    def get_session(self, read_only: bool = False) -> Session:
+        """
+        세션 생성 (읽기/쓰기 분리)
+        :param read_only: True면 Read Replica 사용, False면 Primary 사용
+        """
+        if read_only:
+            return self.ReplicaSession()
+        else:
+            return self.PrimarySession()
     
     def create_tables(self):
         """테이블 생성"""
@@ -97,18 +145,24 @@ class DatabaseManager:
             db.close()
     
     @contextmanager
-    def session_scope(self):
+    def session_scope(self, read_only: bool = False):
         """
-        Context Manager로 세션 관리
+        Context Manager로 세션 관리 (Read/Write 분리)
         
         사용 예:
+        # 읽기 전용 (Replica)
+        with db_manager.session_scope(read_only=True) as session:
+            posts = session.query(Post).all()
+        
+        # 쓰기 (Primary)
         with db_manager.session_scope() as session:
-            user = session.query(User).first()
+            session.add(new_post)
         """
-        session = self.SessionLocal()
+        session = self.get_session(read_only=read_only)
         try:
             yield session
-            session.commit()
+            if not read_only:
+                session.commit()
         except Exception as e:
             log.error(f"Session error: {e}")
             session.rollback()
@@ -129,21 +183,32 @@ class DatabaseManager:
             return False
     
     def get_pool_status(self) -> dict:
-        """커넥션 풀 상태 조회"""
-        pool = self.engine.pool
+        """커넥션 풀 상태 조회 (Primary + Replica)"""
+        primary_pool = self.primary_engine.pool
+        replica_pool = self.read_replica_engine.pool
+        
         return {
-            "pool_size": pool.size(),
-            "checked_in": pool.checkedin(),
-            "checked_out": pool.checkedout(),
-            "overflow": pool.overflow(),
-            "max_overflow": settings.DB_MAX_OVERFLOW
+            "primary": {
+                "pool_size": primary_pool.size(),
+                "checked_in": primary_pool.checkedin(),
+                "checked_out": primary_pool.checkedout(),
+                "overflow": primary_pool.overflow(),
+            },
+            "replica": {
+                "pool_size": replica_pool.size(),
+                "checked_in": replica_pool.checkedin(),
+                "checked_out": replica_pool.checkedout(),
+                "overflow": replica_pool.overflow(),
+            } if self.read_replica_engine != self.primary_engine else "same_as_primary"
         }
     
     def close(self):
         """데이터베이스 연결 종료"""
-        if self.engine:
-            self.engine.dispose()
-            log.info("Database connections closed")
+        if self.primary_engine:
+            self.primary_engine.dispose()
+        if self.read_replica_engine and self.read_replica_engine != self.primary_engine:
+            self.read_replica_engine.dispose()
+        log.info("Database connections closed")
 
 
 # 전역 데이터베이스 매니저

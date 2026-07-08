@@ -90,16 +90,26 @@ app = FastAPI(
 )
 
 
-class ConnectionManager:
-    """WebSocket 연결 관리 (메트릭 수집 포함)"""
+class DistributedConnectionManager:
+    """
+    분산 WebSocket 연결 관리 (Redis Pub/Sub)
+    - 로컬 서버의 연결 관리
+    - Redis Pub/Sub으로 다른 서버에 메시지 전파
+    - 스케일아웃 가능한 구조
+    """
     
     def __init__(self):
         self.active_connections: Dict[int, list[WebSocket]] = {}
+        self.pubsub_tasks: Dict[int, any] = {}  # 각 방의 Pub/Sub 리스너
 
     async def connect(self, room_id: int, websocket: WebSocket):
+        """WebSocket 연결 수립"""
         await websocket.accept()
         if room_id not in self.active_connections:
             self.active_connections[room_id] = []
+            # 이 방의 Pub/Sub 리스너 시작
+            await self._start_pubsub_listener(room_id)
+        
         self.active_connections[room_id].append(websocket)
         
         # 메트릭 업데이트
@@ -107,27 +117,118 @@ class ConnectionManager:
         log.info(f"WebSocket connected - Room: {room_id}, Total: {len(self.active_connections[room_id])}")
 
     def disconnect(self, room_id: int, websocket: WebSocket):
+        """WebSocket 연결 종료"""
         if room_id in self.active_connections:
             if websocket in self.active_connections[room_id]:
                 self.active_connections[room_id].remove(websocket)
             if not self.active_connections[room_id]:
                 del self.active_connections[room_id]
+                # 방에 연결이 없으면 Pub/Sub 리스너 종료
+                self._stop_pubsub_listener(room_id)
             
             # 메트릭 업데이트
             update_websocket_connections(room_id, -1)
             log.info(f"WebSocket disconnected - Room: {room_id}")
 
     async def send_personal_message(self, message: str, websocket: WebSocket):
-        await websocket.send_text(message)
+        """개별 메시지 전송"""
+        try:
+            await websocket.send_text(message)
+        except Exception as e:
+            log.error(f"Failed to send personal message: {e}")
 
     async def broadcast_to_local(self, room_id: int, message: str):
+        """로컬 서버의 연결에만 메시지 전송"""
         if room_id in self.active_connections:
+            disconnected = []
             for connection in self.active_connections[room_id]:
-                await connection.send_text(message)
-                record_websocket_message(room_id, "sent")
+                try:
+                    await connection.send_text(message)
+                    record_websocket_message(room_id, "sent")
+                except Exception as e:
+                    log.error(f"Failed to send to connection: {e}")
+                    disconnected.append(connection)
+            
+            # 끊어진 연결 제거
+            for conn in disconnected:
+                self.disconnect(room_id, conn)
+    
+    async def broadcast(self, room_id: int, message: str):
+        """
+        분산 브로드캐스트
+        1. 로컬 연결에 전송
+        2. Redis Pub/Sub으로 다른 서버에 전파
+        """
+        # 1. 로컬 연결에 전송
+        await self.broadcast_to_local(room_id, message)
+        
+        # 2. Redis Pub/Sub으로 다른 서버에 전파
+        if redis_manager.redis:
+            try:
+                channel = f"chat:room:{room_id}"
+                await redis_manager.redis.publish(channel, message)
+                log.debug(f"Published message to Redis channel: {channel}")
+            except Exception as e:
+                log.error(f"Failed to publish to Redis: {e}")
+    
+    async def _start_pubsub_listener(self, room_id: int):
+        """
+        Redis Pub/Sub 리스너 시작
+        다른 서버에서 발행한 메시지를 수신
+        """
+        if not redis_manager.redis:
+            log.warning("Redis not available, Pub/Sub listener not started")
+            return
+        
+        try:
+            import asyncio
+            channel = f"chat:room:{room_id}"
+            pubsub = redis_manager.redis.pubsub()
+            await pubsub.subscribe(channel)
+            
+            # 백그라운드 태스크로 메시지 수신
+            task = asyncio.create_task(self._listen_pubsub(room_id, pubsub))
+            self.pubsub_tasks[room_id] = task
+            log.info(f"Started Pub/Sub listener for room {room_id}")
+        except Exception as e:
+            log.error(f"Failed to start Pub/Sub listener: {e}")
+            # 실패해도 로컬 연결은 유지
+    
+    async def _listen_pubsub(self, room_id: int, pubsub):
+        """
+        Redis Pub/Sub 메시지 수신 루프
+        """
+        try:
+            async for message in pubsub.listen():
+                if message['type'] == 'message':
+                    data = message['data'].decode('utf-8') if isinstance(message['data'], bytes) else message['data']
+                    # 로컬 연결에 전송 (Redis에서 받은 메시지)
+                    await self.broadcast_to_local(room_id, data)
+                    log.debug(f"Received message from Redis for room {room_id}")
+        except asyncio.CancelledError:
+            log.info(f"Pub/Sub listener cancelled for room {room_id}")
+        except Exception as e:
+            log.error(f"Pub/Sub listener error for room {room_id}: {e}")
+        finally:
+            try:
+                await pubsub.unsubscribe()
+                await pubsub.close()
+            except Exception as e:
+                log.error(f"Error closing pubsub: {e}")
+    
+    def _stop_pubsub_listener(self, room_id: int):
+        """리스너 종료"""
+        if room_id in self.pubsub_tasks:
+            try:
+                task = self.pubsub_tasks[room_id]
+                task.cancel()
+                del self.pubsub_tasks[room_id]
+                log.info(f"Stopped Pub/Sub listener for room {room_id}")
+            except Exception as e:
+                log.error(f"Error stopping Pub/Sub listener: {e}")
 
 
-manager = ConnectionManager()
+manager = DistributedConnectionManager()
 
 
 # =============================================================================
@@ -253,8 +354,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int):
                     "created_at": datetime.now().isoformat()
                 }
 
-                # 브로드캐스트
-                await manager.broadcast_to_local(room_id, json.dumps(response_message))
+                # 분산 브로드캐스트 (로컬 + Redis Pub/Sub)
+                await manager.broadcast(room_id, json.dumps(response_message))
                 
                 # 메트릭 기록
                 record_websocket_message(room_id, "received")
