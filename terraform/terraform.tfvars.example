@@ -1,0 +1,37 @@
+# =============================================================================
+# Terraform Variables (Example)
+# 이 파일을 terraform.tfvars로 복사하고 실제 값을 입력하세요
+# =============================================================================
+
+aws_region  = "ap-southeast-2"
+environment = "production"
+project_name = "community-be"
+
+# VPC
+vpc_cidr = "10.0.0.0/16"
+availability_zones = ["ap-southeast-2a", "ap-southeast-2b", "ap-southeast-2c"]
+
+# EKS
+eks_cluster_name = "community-eks-cluster"
+eks_node_instance_type = "t3.medium"
+eks_node_desired_size = 2
+eks_node_min_size = 2
+eks_node_max_size = 10
+
+# RDS
+db_instance_class = "db.t3.micro"
+db_name = "communitydb"
+db_username = "admin"
+db_password = "YOUR_SECURE_PASSWORD_HERE"  # 반드시 변경!
+db_allocated_storage = 20
+db_max_allocated_storage = 100
+
+# Redis
+redis_node_type = "cache.t3.micro"
+redis_num_cache_nodes = 2  # Multi-AZ를 위해 2개 이상 권장
+
+# Tags
+tags = {
+  Owner = "DevOps Team"
+  Cost_Center = "Engineering"
+}
