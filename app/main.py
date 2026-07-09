@@ -276,8 +276,8 @@ async def add_request_id_and_log(request: Request, call_next):
 # =============================================================================
 # Routers
 # =============================================================================
-app.include_router(router)
-app.include_router(chat_router)
+app.include_router(router, prefix="/api")
+app.include_router(chat_router, prefix="/api")
 
 
 # =============================================================================
