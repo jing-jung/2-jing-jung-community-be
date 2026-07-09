@@ -99,6 +99,17 @@
 - **Terraform** - Infrastructure as Code
 - **GitHub Actions** - CI/CD Pipeline
 
+## 📖 Documentation
+
+- 📘 [배포 가이드](DEPLOY_GUIDE.md) - Kubernetes 배포 및 설정
+- 🔧 [트러블슈팅 가이드](DEPLOYMENT_TROUBLESHOOTING.md) ⭐ **실전 경험 기록**
+- 🏗️ [아키텍처 문서](ARCHITECTURE.md) - 시스템 설계 및 구조
+- 📊 [Ultra-Scale 아키텍처](ULTRA-SCALE.md) - 100만명 대응 구성
+- ⚡ [성능 개선 내역](PERFORMANCE_IMPROVEMENTS.md) - 최적화 기록
+- 📈 [부하 테스트 결과](LOAD_TEST_RESULTS.md) - 성능 측정
+
+---
+
 ## 📂 Directory Structure (고도화)
 ```text
 📦 Community Backend (Production)
