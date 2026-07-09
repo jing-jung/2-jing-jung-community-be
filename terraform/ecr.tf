@@ -5,6 +5,7 @@
 resource "aws_ecr_repository" "backend" {
   name                 = var.project_name
   image_tag_mutability = "MUTABLE"
+  force_delete         = true  # 이미지가 있어도 삭제 가능
 
   image_scanning_configuration {
     scan_on_push = true
